@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SBA Business Search</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header span { opacity: 0.5; font-size: 0.85rem; }
+
+    .search-card {
+      max-width: 900px;
+      margin: 36px auto 0;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+      padding: 28px 32px;
+    }
+
+    .search-card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #333;
+    }
+
+    .fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 14px;
+      align-items: end;
+    }
+
+    @media (max-width: 700px) {
+      .fields { grid-template-columns: 1fr 1fr; }
+    }
+
+    .field label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+
+    .field select, .field input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #dde1e9;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      background: #fafbfc;
+      color: #1a1a2e;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .field select:focus, .field input:focus {
+      border-color: #4f46e5;
+      background: #fff;
+    }
+
+    button#btn-search {
+      padding: 10px 28px;
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      height: 42px;
+      transition: background 0.15s;
+    }
+    button#btn-search:hover { background: #4338ca; }
+
+    button#btn-clear {
+      padding: 10px 16px;
+      background: transparent;
+      color: #888;
+      border: 1.5px solid #dde1e9;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      height: 42px;
+      transition: all 0.15s;
+    }
+    button#btn-clear:hover { border-color: #aaa; color: #555; }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    /* Results */
+    .results-section {
+      max-width: 900px;
+      margin: 24px auto 48px;
+    }
+
+    .results-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding: 0 4px;
+    }
+
+    .results-count {
+      font-size: 0.88rem;
+      color: #666;
+    }
+
+    .results-count strong { color: #1a1a2e; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      font-size: 0.875rem;
+    }
+
+    thead th {
+      background: #1a1a2e;
+      color: #fff;
+      text-align: left;
+      padding: 12px 16px;
+      font-weight: 600;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    tbody tr { border-bottom: 1px solid #f0f2f5; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f8f9ff; }
+
+    tbody td {
+      padding: 12px 16px;
+      vertical-align: middle;
+    }
+
+    .biz-name {
+      font-weight: 600;
+      color: #1a1a2e;
+    }
+
+    .biz-address {
+      color: #666;
+      font-size: 0.82rem;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      background: #ede9fe;
+      color: #5b21b6;
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 20px;
+    }
+
+    .pagination button {
+      padding: 7px 14px;
+      border: 1.5px solid #dde1e9;
+      background: #fff;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .pagination button:hover:not(:disabled) { border-color: #4f46e5; color: #4f46e5; }
+    .pagination button.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+    .pagination button:disabled { opacity: 0.35; cursor: default; }
+
+    /* States */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #888;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .empty-state p { font-size: 0.95rem; }
+
+    .loading {
+      text-align: center;
+      padding: 48px;
+      color: #888;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>SBA Business Search</h1>
+  <span>PPP Loan Database</span>
+</header>
+
+<div class="search-card">
+  <h2>Find businesses by industry and location</h2>
+  <div class="fields">
+    <div class="field">
+      <label>Industry</label>
+      <select id="sel-industry">
+        <option value="">All industries</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>State</label>
+      <select id="sel-state">
+        <option value="">All states</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>City</label>
+      <input type="text" id="inp-city" placeholder="e.g. Brooklyn">
+    </div>
+    <div class="field">
+      <label>Business name</label>
+      <input type="text" id="inp-name" placeholder="e.g. Pizza">
+    </div>
+    <div class="field btn-row" style="grid-column: span 4;">
+      <button id="btn-search">Search</button>
+      <button id="btn-clear">Clear</button>
+    </div>
+  </div>
+</div>
+
+<div class="results-section" id="results-section" style="display:none">
+  <div class="results-meta">
+    <div class="results-count" id="results-count"></div>
+    <div id="page-info" style="font-size:0.85rem;color:#888;"></div>
+  </div>
+  <div id="results-container"></div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<script>
+let currentPage = 1;
+let lastParams = {};
+
+async function loadFilters() {
+  const [indRes, stRes] = await Promise.all([
+    fetch("/api/industries").then(r => r.json()),
+    fetch("/api/states").then(r => r.json()),
+  ]);
+
+  const indSel = document.getElementById("sel-industry");
+  indRes.forEach(({ name, count }) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = `${name} (${count.toLocaleString()})`;
+    indSel.appendChild(opt);
+  });
+
+  const stSel = document.getElementById("sel-state");
+  stRes.forEach(st => {
+    const opt = document.createElement("option");
+    opt.value = st;
+    opt.textContent = st;
+    stSel.appendChild(opt);
+  });
+}
+
+function buildParams(page) {
+  const p = new URLSearchParams();
+  const industry = document.getElementById("sel-industry").value;
+  const state = document.getElementById("sel-state").value;
+  const city = document.getElementById("inp-city").value.trim();
+  const name = document.getElementById("inp-name").value.trim();
+  if (industry) p.set("industry", industry);
+  if (state) p.set("state", state);
+  if (city) p.set("city", city);
+  if (name) p.set("name", name);
+  p.set("page", page);
+  return p;
+}
+
+async function search(page) {
+  currentPage = page;
+  const section = document.getElementById("results-section");
+  const container = document.getElementById("results-container");
+  section.style.display = "block";
+  container.innerHTML = '<div class="loading">Searching...</div>';
+  document.getElementById("pagination").innerHTML = "";
+  document.getElementById("results-count").textContent = "";
+
+  const params = buildParams(page);
+  lastParams = params;
+
+  const data = await fetch(`/api/search?${params}`).then(r => r.json());
+  renderResults(data);
+}
+
+function renderResults(data) {
+  const container = document.getElementById("results-container");
+  const countEl = document.getElementById("results-count");
+  const pageInfo = document.getElementById("page-info");
+
+  countEl.innerHTML = `<strong>${data.total.toLocaleString()}</strong> businesses found`;
+  pageInfo.textContent = data.total_pages > 1
+    ? `Page ${data.page} of ${data.total_pages}`
+    : "";
+
+  if (data.results.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">🔍</div>
+        <p>No businesses found. Try adjusting your filters.</p>
+      </div>`;
+    return;
+  }
+
+  const rows = data.results.map(r => `
+    <tr>
+      <td>
+        <div class="biz-name">${esc(r.borrower_name)}</div>
+        <div class="biz-address">${esc(r.borrower_address || "")}</div>
+      </td>
+      <td>${esc(r.borrower_city || "")}</td>
+      <td>${esc(r.borrower_state || "")}</td>
+      <td><span class="tag">${esc(r.industry || "")}</span></td>
+      <td style="color:#666;font-size:0.82rem;">${esc(r.naics_code || "")}</td>
+      <td style="text-align:right;">${r.jobs_reported || "—"}</td>
+    </tr>
+  `).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Business Name</th>
+          <th>City</th>
+          <th>State</th>
+          <th>Industry</th>
+          <th>NAICS</th>
+          <th style="text-align:right;">Jobs</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  renderPagination(data.page, data.total_pages);
+}
+
+function renderPagination(page, total) {
+  const el = document.getElementById("pagination");
+  if (total <= 1) { el.innerHTML = ""; return; }
+
+  let html = `<button ${page === 1 ? "disabled" : ""} onclick="search(${page-1})">&#8592; Prev</button>`;
+
+  const range = [];
+  for (let i = Math.max(1, page-2); i <= Math.min(total, page+2); i++) range.push(i);
+  if (range[0] > 1) html += `<button onclick="search(1)">1</button>${range[0]>2?"<button disabled>…</button>":""}`;
+  range.forEach(i => {
+    html += `<button class="${i===page?"active":""}" onclick="search(${i})">${i}</button>`;
+  });
+  if (range[range.length-1] < total) html += `${range[range.length-1]<total-1?"<button disabled>…</button>":""}<button onclick="search(${total})">${total}</button>`;
+  html += `<button ${page === total ? "disabled" : ""} onclick="search(${page+1})">Next &#8594;</button>`;
+
+  el.innerHTML = html;
+}
+
+function esc(str) {
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+document.getElementById("btn-search").addEventListener("click", () => search(1));
+document.getElementById("btn-clear").addEventListener("click", () => {
+  document.getElementById("sel-industry").value = "";
+  document.getElementById("sel-state").value = "";
+  document.getElementById("inp-city").value = "";
+  document.getElementById("inp-name").value = "";
+  document.getElementById("results-section").style.display = "none";
+});
+
+["inp-city", "inp-name"].forEach(id => {
+  document.getElementById(id).addEventListener("keydown", e => {
+    if (e.key === "Enter") search(1);
+  });
+});
+
+loadFilters();
+</script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+# ── Sensitive config (has DB password) ──────────────────────
+config.py
+
+# ── SBA data files (large + sensitive business data) ────────
+*.csv
+*.tsv
+*.xlsx
+*.xls
+
+# ── Python cache ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ──────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Jupyter notebooks (scratch work) ─────────────────────────
+*.ipynb
+.ipynb_checkpoints/
+
+# ── Scratch / test files ──────────────────────────────────────
+test.py
+testscrapy.py
+quotes.json
+
+# ── OS files ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
