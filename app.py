@@ -2,18 +2,24 @@
 SBA Business Search — Flask API
 Run: python app.py
 """
-from flask import Flask, request, jsonify, render_template
+import time
+import requests
+from flask import Flask, request, jsonify, render_template, Response
 import pymysql
-from config import MYSQL_CONFIG, FLASK_HOST, FLASK_PORT, FLASK_DEBUG
+from config import MYSQL_CONFIG, FLASK_HOST, FLASK_PORT, FLASK_DEBUG, GOOGLE_PLACES_API_KEY
 
 app = Flask(__name__)
 
 def get_db():
     return pymysql.connect(**MYSQL_CONFIG, cursorclass=pymysql.cursors.DictCursor)
 
+# ── Pages ─────────────────────────────────────────────────────────────────────
+
 @app.route("/")
 def index():
     return render_template("index.html")
+
+# ── Filter dropdowns ──────────────────────────────────────────────────────────
 
 @app.route("/api/industries")
 def api_industries():
@@ -44,6 +50,8 @@ def api_states():
     cur.close(); conn.close()
     return jsonify(rows)
 
+# ── Search ────────────────────────────────────────────────────────────────────
+
 @app.route("/api/search")
 def api_search():
     conn = get_db()
@@ -73,9 +81,9 @@ def api_search():
 
     where = " AND ".join(clauses) if clauses else "1=1"
 
-    page = max(1, int(request.args.get("page", 1)))
+    page     = max(1, int(request.args.get("page", 1)))
     per_page = 50
-    offset = (page - 1) * per_page
+    offset   = (page - 1) * per_page
 
     cur.execute(f"SELECT COUNT(*) AS cnt FROM leads WHERE {where}", params)
     total = cur.fetchone()["cnt"]
@@ -107,12 +115,140 @@ def api_search():
 
     cur.close(); conn.close()
     return jsonify({
-        "results": rows,
-        "total": total,
-        "page": page,
-        "per_page": per_page,
+        "results":     rows,
+        "total":       total,
+        "page":        page,
+        "per_page":    per_page,
         "total_pages": max(1, (total + per_page - 1) // per_page),
     })
+
+# ── Enrichment (Google Places API) ───────────────────────────────────────────
+
+def places_lookup(business_name, city, state):
+    """
+    Two-step Google Places lookup:
+      1. Text Search  → find the place_id using name + location
+      2. Place Details → pull website + phone from that place_id
+
+    Using city+state in the query significantly improves match accuracy
+    vs. just sending the business name alone.
+    """
+    # Step 1 — Text Search
+    query = f"{business_name} {city} {state}"
+    search_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+    search_resp = requests.get(search_url, params={
+        "query": query,
+        "key":   GOOGLE_PLACES_API_KEY,
+    }, timeout=10)
+    search_data = search_resp.json()
+
+    if search_data.get("status") != "OK" or not search_data.get("results"):
+        return {"website": None, "phone": None, "maps_url": None, "match_name": None}
+
+    top = search_data["results"][0]
+    place_id   = top["place_id"]
+    match_name = top.get("name", "")
+    maps_url   = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+
+    # Step 2 — Place Details (only fetch the fields we need → cheaper API call)
+    details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+    details_resp = requests.get(details_url, params={
+        "place_id": place_id,
+        "fields":   "website,formatted_phone_number",
+        "key":      GOOGLE_PLACES_API_KEY,
+    }, timeout=10)
+    details = details_resp.json().get("result", {})
+
+    return {
+        "website":    details.get("website"),
+        "phone":      details.get("formatted_phone_number"),
+        "maps_url":   maps_url,
+        "match_name": match_name,
+    }
+
+@app.route("/api/enrich", methods=["POST"])
+def api_enrich():
+    """
+    Accepts up to 10 businesses, looks each one up on Google Places,
+    returns enriched data including website and phone.
+    """
+    data = request.get_json()
+    businesses = data.get("businesses", [])
+
+    if not businesses:
+        return jsonify({"error": "No businesses provided"}), 400
+    if len(businesses) > 10:
+        return jsonify({"error": "Max 10 businesses per batch"}), 400
+
+    results = []
+    for biz in businesses:
+        name  = biz.get("borrower_name", "")
+        city  = biz.get("borrower_city", "")
+        state = biz.get("borrower_state", "")
+
+        try:
+            enriched = places_lookup(name, city, state)
+        except Exception as e:
+            enriched = {"website": None, "phone": None, "maps_url": None, "match_name": None}
+
+        results.append({**biz, **enriched})
+
+        # Polite delay — avoids hammering the API and getting rate-limited
+        time.sleep(0.3)
+
+    return jsonify({"results": results})
+
+# ── CSV Export ────────────────────────────────────────────────────────────────
+
+@app.route("/api/export-csv", methods=["POST"])
+def api_export_csv():
+    """
+    Takes the already-enriched list from the frontend and streams it
+    back as a downloadable CSV file.
+    """
+    data  = request.get_json()
+    rows  = data.get("rows", [])
+
+    headers = [
+        "Business Name", "Address", "City", "State", "ZIP",
+        "Industry", "NAICS Code", "Jobs", "Loan Status",
+        "Website", "Phone", "Google Maps URL", "Matched Name on Maps",
+    ]
+
+    def generate():
+        yield ",".join(headers) + "\n"
+        for r in rows:
+            vals = [
+                r.get("borrower_name", ""),
+                r.get("borrower_address", ""),
+                r.get("borrower_city", ""),
+                r.get("borrower_state", ""),
+                r.get("borrower_zip", ""),
+                r.get("industry", ""),
+                r.get("naics_code", ""),
+                str(r.get("jobs_reported", "") or ""),
+                r.get("loan_status", ""),
+                r.get("website", "") or "",
+                r.get("phone", "") or "",
+                r.get("maps_url", "") or "",
+                r.get("match_name", "") or "",
+            ]
+            # Wrap any value containing a comma or quote in double-quotes
+            safe = []
+            for v in vals:
+                v = str(v)
+                if "," in v or '"' in v or "\n" in v:
+                    v = '"' + v.replace('"', '""') + '"'
+                safe.append(v)
+            yield ",".join(safe) + "\n"
+
+    return Response(
+        generate(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=sba_enriched_leads.csv"},
+    )
+
+# ── Run ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     print(f"SBA Business Search — http://{FLASK_HOST}:{FLASK_PORT}")
