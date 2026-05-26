@@ -231,11 +231,11 @@
 <div class="enrich-bar" id="enrich-bar" style="display:none">
   <div class="enrich-bar-left">
     <strong id="sel-count">0</strong> businesses selected
-    &nbsp;·&nbsp; Google Places will find their website &amp; phone
+    &nbsp;·&nbsp; Finds website (Google Places) → scrapes email &amp; phone from site
   </div>
   <div class="enrich-bar-right">
     <button class="btn-clear-sel" id="btn-clear-sel">Clear selection</button>
-    <button class="btn-enrich" id="btn-enrich">⚡ Enrich &amp; Export CSV</button>
+    <button class="btn-enrich" id="btn-enrich">⚡ Find Contacts &amp; Export CSV</button>
   </div>
 </div>
 
@@ -450,10 +450,13 @@ document.getElementById("btn-enrich").addEventListener("click", async () => {
       if (!row) return;
       const lastTd = row.querySelector("td:last-child");
       let html = "";
-      if (r.website)  html += `<a class="website-link" href="${esc(r.website)}" target="_blank">🌐 Website</a><br>`;
-      if (r.phone)    html += `<span style="color:#555;font-size:0.78rem;">📞 ${esc(r.phone)}</span><br>`;
-      if (r.maps_url) html += `<a class="maps-link" href="${esc(r.maps_url)}" target="_blank">📍 Maps</a>`;
-      if (!r.website && !r.phone) html = `<span style="color:#bbb;font-size:0.78rem;">Not found</span>`;
+      if (r.website)       html += `<a class="website-link" href="${esc(r.website)}" target="_blank">🌐 Website</a><br>`;
+      if (r.email)         html += `<span style="color:#059669;font-size:0.78rem;">✉️ ${esc(r.email)}</span><br>`;
+      if (r.contact_name)  html += `<span style="color:#b45309;font-size:0.78rem;">👤 ${esc(r.contact_name)}</span><br>`;
+      if (r.phone)         html += `<span style="color:#555;font-size:0.78rem;">📞 ${esc(r.phone)}</span><br>`;
+      if (r.maps_url)      html += `<a class="maps-link" href="${esc(r.maps_url)}" target="_blank">📍 Maps</a>`;
+      if (!r.website && !r.phone && !r.email)
+        html = `<span style="color:#bbb;font-size:0.78rem;">Not found</span>`;
       lastTd.innerHTML = html;
     });
 

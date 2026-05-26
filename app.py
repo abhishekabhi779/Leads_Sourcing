@@ -7,6 +7,7 @@ import requests
 from flask import Flask, request, jsonify, render_template, Response
 import pymysql
 from config import MYSQL_CONFIG, FLASK_HOST, FLASK_PORT, FLASK_DEBUG, GOOGLE_PLACES_API_KEY
+from scraper import scrape_contact
 
 app = Flask(__name__)
 
@@ -169,10 +170,11 @@ def places_lookup(business_name, city, state):
 @app.route("/api/enrich", methods=["POST"])
 def api_enrich():
     """
-    Accepts up to 10 businesses, looks each one up on Google Places,
-    returns enriched data including website and phone.
+    Full enrichment pipeline per business:
+      1. Google Places → website URL + phone
+      2. Website scraper → email, scraped phone, contact name from footer/contact page
     """
-    data = request.get_json()
+    data       = request.get_json()
     businesses = data.get("businesses", [])
 
     if not businesses:
@@ -186,15 +188,29 @@ def api_enrich():
         city  = biz.get("borrower_city", "")
         state = biz.get("borrower_state", "")
 
+        # Step 1 — Google Places
         try:
-            enriched = places_lookup(name, city, state)
-        except Exception as e:
-            enriched = {"website": None, "phone": None, "maps_url": None, "match_name": None}
+            places = places_lookup(name, city, state)
+        except Exception:
+            places = {"website": None, "phone": None, "maps_url": None, "match_name": None}
 
-        results.append({**biz, **enriched})
-
-        # Polite delay — avoids hammering the API and getting rate-limited
         time.sleep(0.3)
+
+        # Step 2 — Website scraper (only if Places found a website)
+        scraped = {"email": None, "phone_scraped": None, "contact_name": None, "scrape_source": None}
+        if places.get("website"):
+            try:
+                result = scrape_contact(places["website"])
+                scraped = {
+                    "email":         result.get("email"),
+                    "phone_scraped": result.get("phone_scraped"),
+                    "contact_name":  result.get("contact_name"),
+                    "scrape_source": result.get("source"),
+                }
+            except Exception:
+                pass
+
+        results.append({**biz, **places, **scraped})
 
     return jsonify({"results": results})
 
@@ -211,9 +227,10 @@ def api_export_csv():
 
     headers = [
         "Business Name", "Address", "City", "State", "ZIP",
-        "Industry", "NAICS Code", "Jobs Reported", "Loan Amount ($)",
-        "Loan Status", "Website", "Phone", "Google Maps URL",
-        "Matched Name on Maps", "Website Found?",
+        "Industry", "NAICS Code", "Jobs Reported", "Loan Amount ($)", "Loan Status",
+        "Website", "Phone (Google)", "Email (Scraped)", "Phone (Scraped)",
+        "Contact Name", "Scrape Source",
+        "Google Maps URL", "Matched Name on Maps", "Website Found?",
     ]
 
     def generate():
@@ -237,6 +254,10 @@ def api_export_csv():
                 r.get("loan_status", ""),
                 website,
                 r.get("phone", "") or "",
+                r.get("email", "") or "",
+                r.get("phone_scraped", "") or "",
+                r.get("contact_name", "") or "",
+                r.get("scrape_source", "") or "",
                 r.get("maps_url", "") or "",
                 r.get("match_name", "") or "",
                 "Yes" if website else "No",
