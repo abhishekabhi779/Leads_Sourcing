@@ -211,13 +211,19 @@ def api_export_csv():
 
     headers = [
         "Business Name", "Address", "City", "State", "ZIP",
-        "Industry", "NAICS Code", "Jobs", "Loan Status",
-        "Website", "Phone", "Google Maps URL", "Matched Name on Maps",
+        "Industry", "NAICS Code", "Jobs Reported", "Loan Amount ($)",
+        "Loan Status", "Website", "Phone", "Google Maps URL",
+        "Matched Name on Maps", "Website Found?",
     ]
 
     def generate():
         yield ",".join(headers) + "\n"
         for r in rows:
+            loan_amt = r.get("current_approval_amount", "") or ""
+            if loan_amt:
+                try: loan_amt = f"{float(loan_amt):,.0f}"
+                except: pass
+            website = r.get("website", "") or ""
             vals = [
                 r.get("borrower_name", ""),
                 r.get("borrower_address", ""),
@@ -227,11 +233,13 @@ def api_export_csv():
                 r.get("industry", ""),
                 r.get("naics_code", ""),
                 str(r.get("jobs_reported", "") or ""),
+                str(loan_amt),
                 r.get("loan_status", ""),
-                r.get("website", "") or "",
+                website,
                 r.get("phone", "") or "",
                 r.get("maps_url", "") or "",
                 r.get("match_name", "") or "",
+                "Yes" if website else "No",
             ]
             # Wrap any value containing a comma or quote in double-quotes
             safe = []
