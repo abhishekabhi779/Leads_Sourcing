@@ -1,64 +1,60 @@
 # SBA Lead Sourcing Machine
 
-A full lead generation pipeline built on **SBA PPP loan public data**. Search 1M+ small businesses by industry and location, then automatically find their website, email address, phone number, and contact name — ready for outreach.
-
-**Built for:** Targeted B2B outreach (loan sales, services, etc.)
-**Next phase:** Automated email campaigns using the enriched contact data.
+A full business intelligence pipeline built on **SBA PPP public loan data** — 1.87M small businesses searchable by industry, location, or plain-English description, with automated contact enrichment.
 
 ---
 
-## What Problem This Solves
+## What It Does
 
-Cold outreach is only effective when you know *who* you're calling and *what* they do. The SBA released PPP loan data for every small business that applied — that's 1M+ businesses with their name, address, industry, and size. This project turns that raw government data into actionable sales leads with real contact info.
+The SBA released PPP loan records for every small business that applied — names, addresses, industries, employee counts, loan amounts. This project turns that raw government dataset into an intelligent, enrichable lead database.
+
+- **Filter search** — sector → industry cascade, state, city, business name
+- **AI semantic search** — type "metal fabrication shops" and find them even if the NAICS label says "Metal Products Manufacturing"
+- **Contact enrichment** — select any businesses → Google Places finds their website and phone → scraper extracts email, owner name, and direct contact
+- **CSV export** — enriched rows ready for outreach
 
 ---
 
 ## The Full Pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        SBA PPP CSV Files                    │
-│              (~900MB, 1M+ businesses, public data)          │
-└────────────────────────┬────────────────────────────────────┘
-                         │  load_data.py (one-time ETL)
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      MySQL Database                         │
-│   13 columns only — name, address, city, state, zip,       │
-│   NAICS code, industry (classified), jobs, loan amount      │
-└────────────────────────┬────────────────────────────────────┘
-                         │  app.py (Flask API)
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     Search UI (Browser)                     │
-│   Filter by: Industry + State + City + Business Name        │
-│   Results: paginated list of matching businesses            │
-└────────────────────────┬────────────────────────────────────┘
-                         │  Select up to 10 → click Enrich
-                         ▼
-┌──────────────────────────────────────┐
-│       Step 1: Google Places API      │
-│  Query: "Business Name  City  State" │
-│  Returns: Website URL + Phone        │
-└──────────────┬───────────────────────┘
-               │  website URL found
-               ▼
-┌──────────────────────────────────────┐
-│       Step 2: Website Scraper        │
-│  Visits the website, looks for:      │
-│  • Schema.org JSON-LD data           │
-│  • Footer mailto: / tel: links       │
-│  • /contact and /about pages         │
-│  • Regex fallback on full page       │
-│  Returns: Email + Phone + Owner Name │
-└──────────────┬───────────────────────┘
-               │
-               ▼
-┌──────────────────────────────────────┐
-│         Enriched CSV Export          │
-│  Business Name, Address, Industry,   │
-│  Website, Email, Phone, Owner Name   │
-└──────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│              SBA PPP CSV Files                   │
+│        (~900MB, 1.87M businesses, public)        │
+└─────────────────────┬────────────────────────────┘
+                      │  load_data.py (one-time ETL)
+                      ▼
+┌──────────────────────────────────────────────────┐
+│           PostgreSQL 18 + pgvector               │
+│  13 columns: name, address, city, state, zip,    │
+│  NAICS code, naics_sector, industry, jobs,       │
+│  loan amount, embedding vector(384)              │
+└─────────────────────┬────────────────────────────┘
+                      │  app.py (Flask API)
+                      ▼
+┌──────────────────────────────────────────────────┐
+│                Search UI                         │
+│  Filter Search (sector → industry cascade)       │
+│  AI Semantic Search (vector similarity)          │
+└─────────────────────┬────────────────────────────┘
+                      │  Select up to 10 → Enrich
+                      ▼
+┌─────────────────────────────────┐
+│      Step 1: Google Places      │
+│  Returns: website + phone       │
+└───────────────┬─────────────────┘
+                │
+                ▼
+┌─────────────────────────────────┐
+│      Step 2: Website Scraper    │
+│  Returns: email, owner name,    │
+│  direct phone                   │
+└───────────────┬─────────────────┘
+                │
+                ▼
+┌─────────────────────────────────┐
+│         CSV Export              │
+└─────────────────────────────────┘
 ```
 
 ---
@@ -67,185 +63,123 @@ Cold outreach is only effective when you know *who* you're calling and *what* th
 
 ### 1. Data Loading (`load_data.py`)
 
-The SBA publishes PPP loan data as CSV files (~450MB each). This script:
+Reads SBA CSV files row by row (streaming — never loads the full file into memory), drops 35+ irrelevant columns, and classifies each business at load time using its NAICS code.
 
-- Reads each CSV row by row (streaming — never loads whole file into memory)
-- **Drops 35+ columns** that aren't useful for lead generation (lender details, financial breakdowns, government codes)
-- **Classifies each business** using its NAICS code → maps it to a human-friendly industry name
+**Two-level industry classification:**
 
-**What is a NAICS code?**
-Every business in the US is assigned a 6-digit industry code called a NAICS code. For example:
-- `722110` = Full-Service Restaurants
-- `448110` = Men's Clothing Stores
-- `621111` = Offices of Physicians
+Every US business has a 6-digit NAICS code. The loader maps these to two human-readable columns:
 
-The scraper maps these to ~80 friendly categories like "Restaurants & Food Services", "Healthcare", "Construction", etc. This happens at **load time** (not query time) so searches stay fast.
+| Column | Example | Purpose |
+|---|---|---|
+| `naics_sector` | Manufacturing | Broad filter (20 sectors) |
+| `industry` | Primary Metal Manufacturing | Specific label shown in results |
 
-- Inserts rows with `INSERT IGNORE` — safe to re-run, duplicates are skipped automatically
-- **Composite indexes** on `(state, industry)` and `(state, city)` mean searches across millions of rows return in milliseconds
+This matters: a simple `WHERE industry = 'Manufacturing'` would miss all the sub-categories. Storing the 2-digit parent sector separately fixes this — filtering by sector correctly returns every manufacturing sub-type.
 
-**Run once. Data stays in MySQL permanently.**
+Inserts use `ON CONFLICT (loan_number) DO NOTHING` — safe to re-run, no duplicates.
 
 ---
 
-### 2. Search API (`app.py`)
+### 2. Semantic Search Layer
 
-A Flask web server with four endpoints:
+Business descriptions, industry names, and search queries are converted to 384-dimensional vectors using [`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — a local embedding model that runs entirely on CPU.
+
+```
+"metal fabrication shops"  →  [0.67, -0.12, 0.23, ...]  (384 numbers)
+"Metal Products Manufacturing"  →  [0.69, -0.10, 0.21, ...]  (close!)
+"Full-Service Restaurants"  →  [0.12, 0.54, -0.33, ...]  (far away)
+```
+
+Vectors are stored in PostgreSQL via **pgvector** with an **HNSW index** for approximate nearest-neighbour search — returns the 50 closest matches in milliseconds across 1.87M rows.
+
+Only the 85 unique industry categories are embedded (not every row). The computed vector is then propagated to all rows sharing that industry — consistent, cheap, fast to backfill.
+
+---
+
+### 3. Search API (`app.py`)
+
+Flask with direct `psycopg2` connections (no ORM).
 
 | Endpoint | What it does |
 |---|---|
-| `GET /` | Serves the search UI |
-| `GET /api/industries` | Returns all ~80 industry categories with counts |
-| `GET /api/states` | Returns all 50+ state codes |
-| `GET /api/search` | Filtered, paginated business search |
-| `POST /api/enrich` | Runs enrichment pipeline on up to 10 businesses |
-| `POST /api/export-csv` | Downloads enriched results as a CSV file |
-
-The search query builds a `WHERE` clause dynamically based on what filters the user applies — always filtering on indexed columns so the database never does a full table scan.
-
----
-
-### 3. Search UI (`templates/index.html`)
-
-A simple single-page app. No frameworks — plain HTML, CSS, and JavaScript.
-
-**Flow:**
-1. Page loads → fetches industries and states from API → populates dropdowns
-2. User picks Industry + State (+ optional City / Business Name) → hits Search
-3. Results render in a table, 50 per page with pagination
-4. User checks up to 10 rows → purple toolbar appears
-5. Click **"Find Contacts & Export CSV"** → enrichment pipeline runs
+| `GET /api/sectors` | 20 broad sectors with counts |
+| `GET /api/industries?sector=` | Industries filtered to a sector (cascade) |
+| `GET /api/states` | All state codes |
+| `GET /api/search` | Filtered, paginated results (sector, industry, state, city, name) |
+| `GET /api/semantic-search` | Vector similarity search — `?q=metal+fabrication&state=TX` |
+| `POST /api/enrich` | Enrichment pipeline — up to 10 businesses per batch |
+| `POST /api/export-csv` | Streams enriched rows as a downloadable CSV |
 
 ---
 
 ### 4. Google Places Lookup
 
-For each selected business, the app makes **two API calls** to Google Maps:
+Two API calls per business:
 
-**Call 1 — Text Search**
-```
-GET https://maps.googleapis.com/maps/api/place/textsearch/json
-    ?query=Joe's Pizza Brooklyn NY
-```
-Why include city + state? Sending just the business name would return the most popular result globally. Including location pins it to the right neighborhood — this is called **geo-disambiguation**.
+**Call 1 — Text Search** (`"Business Name City State"`)
+Returns a `place_id`. Including city + state is critical for geo-disambiguation — without it you get the most famous result globally, not the local one.
 
-Returns: a `place_id` (Google's unique identifier for that location)
-
-**Call 2 — Place Details**
-```
-GET https://maps.googleapis.com/maps/api/place/details/json
-    ?place_id=ChIJ...
-    &fields=website,formatted_phone_number
-```
-The `fields` parameter is important — we only request what we need. The Places API charges per field, so fetching only `website` and `formatted_phone_number` keeps costs low.
-
-Returns: website URL and phone number
+**Call 2 — Place Details** (`?fields=website,formatted_phone_number`)
+The `fields` param matters — the Places API bills per field requested.
 
 ---
 
-### 5. Website Contact Scraper (`scraper.py`)
+### 5. Website Scraper (`scraper.py`)
 
-Once we have the website URL, the scraper visits it and hunts for contact info. It tries four strategies in order from most reliable to least:
+Visits the website and tries four strategies in priority order:
 
-**Strategy 1 — Schema.org JSON-LD**
+1. **Schema.org JSON-LD** — structured data businesses embed for search engines. Most reliable.
+2. **Footer `mailto:` / `tel:` links** — scoped to `<footer>` to avoid picking up emails from blog posts or ads.
+3. **Contact / About page** — follows `/contact`, `/about`, `/contact-us` links.
+4. **Regex fallback** — scans full page text for email and phone patterns.
 
-Many modern websites embed machine-readable structured data in their HTML `<head>`:
-```html
-<script type="application/ld+json">
-{
-  "@type": "LocalBusiness",
-  "telephone": "(555) 123-4567",
-  "email": "owner@joespizza.com"
-}
-</script>
-```
-This is the most reliable source because the business put it there intentionally for search engines. The scraper parses this JSON directly.
-
-**Strategy 2 — Footer links**
-
-Browsers turn emails and phones into clickable links:
-```html
-<a href="mailto:owner@joespizza.com">Email us</a>
-<a href="tel:+15551234567">Call us</a>
-```
-The scraper targets the `<footer>` element specifically — this scopes the search so it doesn't accidentally pick up emails from blog posts, navigation, or ads elsewhere on the page.
-
-**Strategy 3 — Contact / About page**
-
-If the homepage footer didn't have enough, the scraper looks for links like `/contact`, `/contact-us`, `/about` and visits that page. Contact pages have the highest density of useful info.
-
-**Strategy 4 — Regex fallback**
-
-Last resort. Scans the full visible text of the page for email and phone patterns:
-- Email: `something@domain.com`
-- Phone: `(555) 555-5555`, `555-555-5555`, `555.555.5555`
-
-Generic emails like `info@`, `noreply@`, `support@`, `admin@` are filtered out — they're not useful for targeted outreach.
-
-**Polite scraping** — the scraper waits 0.3–0.5 seconds between requests so it doesn't hammer servers or get IP-blocked.
-
----
-
-## Output CSV Columns
-
-| Column | Source | Use |
-|---|---|---|
-| Business Name | SBA database | Who you're calling |
-| Address / City / State / ZIP | SBA database | Mailing, geo-targeting |
-| Industry | Classified from NAICS | Know what they do |
-| NAICS Code | SBA database | More specific industry |
-| Jobs Reported | SBA database | Business size signal |
-| Loan Amount ($) | SBA database | Another size signal |
-| Loan Status | SBA database | Active vs paid off |
-| Website | Google Places | Verify they're active |
-| Phone (Google) | Google Places | Backup phone |
-| **Email (Scraped)** | Website scraper | Primary outreach channel |
-| **Phone (Scraped)** | Website scraper | Primary call channel |
-| **Contact Name** | Website / Schema.org | Personalized outreach |
-| Scrape Source | Website scraper | Audit trail |
-| Google Maps URL | Google Places | Manual verification |
-| Matched Name on Maps | Google Places | Accuracy check |
-| Website Found? | Computed | Filter in Excel |
+Generic emails (`info@`, `noreply@`, `support@`) are filtered out — not useful for targeted outreach.
 
 ---
 
 ## Setup
 
 ### Prerequisites
-- Python 3.8+
-- MySQL 8.0+
-- SBA PPP CSV files — free download from [data.sba.gov](https://data.sba.gov/dataset/ppp-foia)
+
+- Python 3.10+
+- PostgreSQL 18 (port 5432)
+- pgvector 0.8.2 for PG18 — see `install_pgvector_admin.ps1`
+- SBA PPP CSV files — free from [data.sba.gov](https://data.sba.gov/dataset/ppp-foia)
 - Google Places API key — from [Google Cloud Console](https://console.cloud.google.com/)
 
-### Install
+### Install dependencies
 
 ```bash
-pip install flask pymysql requests beautifulsoup4
+pip install flask psycopg2-binary requests beautifulsoup4 pgvector sentence-transformers
 ```
 
 ### Configure
 
 ```bash
-cp config.example.py config.py
-# Edit config.py:
-#   - Set your MySQL password
-#   - Set paths to your CSV files
-#   - Set your Google Places API key
+copy config.example.py config.py
+# Set your PostgreSQL password, CSV paths, and Google Places API key
 ```
 
-### Load data (one-time, ~15-20 min)
+### One-time setup
 
 ```bash
+# 1. Load CSV data into PostgreSQL (~15–20 min for 900MB)
 python load_data.py
+
+# 2. Add naics_sector column and backfill
+python migrate_naics_sector.py
+
+# 3. Set up pgvector embeddings and HNSW index
+python setup_embeddings.py
 ```
 
-Re-run safe — duplicates are automatically skipped.
+All three scripts are safe to re-run.
 
 ### Run
 
 ```bash
 python app.py
-# Open http://127.0.0.1:5000
+# → http://127.0.0.1:5000
 ```
 
 ---
@@ -254,46 +188,25 @@ python app.py
 
 ```
 SBA/
-├── app.py              # Flask API — search, enrich, export endpoints
-├── load_data.py        # ETL pipeline — CSV → MySQL with NAICS classification
-├── scraper.py          # Website contact scraper — email, phone, owner name
-├── config.py           # Your credentials (gitignored — never committed)
-├── config.example.py   # Template — copy this to config.py
+├── app.py                    # Flask API — all endpoints
+├── load_data.py              # ETL — CSV → PostgreSQL + NAICS classification
+├── scraper.py                # Website contact scraper
+├── migrate_naics_sector.py   # One-time: adds naics_sector column
+├── setup_embeddings.py       # One-time: pgvector setup + embedding backfill
+├── install_pgvector_admin.ps1  # Admin: installs pgvector into PG18 on Windows
+├── config.py                 # Credentials (gitignored)
+├── config.example.py         # Template
 ├── templates/
-│   └── index.html      # Search + enrichment UI (plain HTML/JS, no framework)
-├── static/
-│   ├── style.css
-│   └── app.js
-├── .gitignore          # Excludes config.py, CSVs, pycache
-└── README.md
+│   └── index.html            # Search UI — filter mode + AI semantic search
+└── learnings.md              # Notes from the build
 ```
-
----
-
-## Key Engineering Concepts (Interview Reference)
-
-| Concept | Where it appears in this project |
-|---|---|
-| **ETL pipeline** | `load_data.py` — Extract (CSV), Transform (classify NAICS, drop columns), Load (MySQL) |
-| **Idempotent operations** | `INSERT IGNORE` — re-running load never creates duplicates |
-| **Derived columns** | `industry` computed at load time from `naics_code`, stored for fast filtering |
-| **Composite indexes** | `(state, industry)` — one index serves "restaurants in NY" better than two separate indexes |
-| **Column pruning** | Kept 13 of 50+ CSV columns — smaller DB, faster inserts, less I/O |
-| **API chaining** | Places Text Search → place_id → Place Details (2 calls, 1 result) |
-| **Field masking** | Places Details `?fields=website,phone` — only pay for what you need |
-| **Scraping priority order** | Schema.org → footer links → contact page → regex — most reliable first |
-| **Geo-disambiguation** | Appending city + state to Places query to get the right local business |
-| **Rate limiting** | `time.sleep()` between requests — avoid IP blocks and API quota errors |
-| **Secret management** | API key in gitignored `config.py` — never touches version control |
-| **Pagination** | `LIMIT + OFFSET` — never load all results at once |
-| **Streaming CSV** | Flask `Response(generate())` — streams rows instead of building full string in memory |
 
 ---
 
 ## Roadmap
 
-- [ ] Hunter.io integration — find emails by domain when scraping fails
-- [ ] Automated email campaign integration (SendGrid / Mailgun)
-- [ ] De-duplicate chains and franchises
-- [ ] Add `date_approved` filter — target recently approved businesses
-- [ ] Batch queue — process hundreds overnight with progress tracking
+- [ ] Contact enrichment via Hunter.io when scraping fails
+- [ ] Batch overnight enrichment queue with progress tracking
+- [ ] Claude API integration — natural language → structured query parser
+- [ ] Additional public datasets (SEC EDGAR, USASpending.gov, building permits)
+- [ ] De-duplicate franchise chains
