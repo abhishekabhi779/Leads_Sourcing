@@ -36,6 +36,4 @@
 - Cosine similarity query: `ORDER BY embedding <=> %s::vector` (lower = more similar); `1 - (embedding <=> vector)` = similarity score 0–1
 - Normalize embeddings at encode time (`normalize_embeddings=True`) so cosine and dot-product give the same ranking
 
-## Stack Builder (PostgreSQL installer add-on)
-- Stack Builder pops up after PostgreSQL install — it's optional extensions (PostGIS, ODBC, etc.)
-- For a basic web app, just click Cancel — not needed
+
