@@ -20,58 +20,73 @@
       padding: 18px 32px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      justify-content: space-between;
     }
+    .header-left { display: flex; align-items: center; gap: 12px; }
     header h1 { font-size: 1.2rem; font-weight: 600; }
-    header span { opacity: 0.45; font-size: 0.82rem; margin-left: 4px; }
+    header span { opacity: 0.45; font-size: 0.82rem; }
+    .header-badge {
+      background: linear-gradient(135deg, #7c3aed, #4f46e5);
+      color: #fff; font-size: 0.72rem; font-weight: 700;
+      padding: 3px 10px; border-radius: 99px; letter-spacing: 0.05em;
+    }
 
-    /* ── Search card ── */
+    /* ── Mode tabs ── */
     .search-card {
-      max-width: 960px;
-      margin: 32px auto 0;
+      max-width: 1020px;
+      margin: 28px auto 0;
       background: #fff;
       border-radius: 12px;
       box-shadow: 0 2px 16px rgba(0,0,0,0.07);
-      padding: 26px 30px;
+      overflow: hidden;
     }
-    .search-card h2 { font-size: 0.95rem; font-weight: 600; color: #444; margin-bottom: 18px; }
+    .mode-tabs {
+      display: flex;
+      border-bottom: 1.5px solid #eee;
+    }
+    .mode-tab {
+      flex: 1; padding: 13px 20px;
+      font-size: 0.875rem; font-weight: 600;
+      background: #f8f9fc; color: #999;
+      border: none; cursor: pointer;
+      transition: all 0.15s; border-bottom: 2.5px solid transparent;
+      margin-bottom: -1.5px;
+    }
+    .mode-tab.active { background: #fff; color: #1a1a2e; border-bottom-color: #4f46e5; }
+    .mode-tab:first-child { border-radius: 12px 0 0 0; }
+    .mode-tab:last-child  { border-radius: 0 12px 0 0; }
+
+    /* ── Shared panel styles ── */
+    .search-panel { padding: 22px 26px 24px; }
 
     .fields {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr 1fr;
+      grid-template-columns: repeat(5, 1fr);
       gap: 12px;
       align-items: end;
     }
-    @media (max-width: 680px) { .fields { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 780px) { .fields { grid-template-columns: 1fr 1fr; } }
 
     .field label {
-      display: block;
-      font-size: 0.73rem;
-      font-weight: 700;
-      color: #777;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 5px;
+      display: block; font-size: 0.72rem; font-weight: 700;
+      color: #777; text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 5px;
     }
     .field select, .field input {
-      width: 100%;
-      padding: 9px 11px;
-      border: 1.5px solid #dde1e9;
-      border-radius: 7px;
-      font-size: 0.875rem;
-      background: #fafbfc;
-      color: #1a1a2e;
-      outline: none;
-      transition: border-color 0.15s;
+      width: 100%; padding: 9px 11px;
+      border: 1.5px solid #dde1e9; border-radius: 7px;
+      font-size: 0.875rem; background: #fafbfc;
+      color: #1a1a2e; outline: none; transition: border-color 0.15s;
     }
     .field select:focus, .field input:focus { border-color: #4f46e5; background: #fff; }
+    .field select:disabled { opacity: 0.45; }
 
-    .btn-row { display: flex; gap: 8px; align-items: center; grid-column: span 4; margin-top: 4px; }
+    .btn-row { display: flex; gap: 8px; align-items: center; }
 
     .btn-primary {
       padding: 9px 26px; background: #4f46e5; color: #fff;
       border: none; border-radius: 7px; font-size: 0.875rem; font-weight: 600;
-      cursor: pointer; height: 40px; transition: background 0.15s;
+      cursor: pointer; height: 40px; transition: background 0.15s; white-space: nowrap;
     }
     .btn-primary:hover { background: #4338ca; }
 
@@ -82,18 +97,38 @@
     }
     .btn-ghost:hover { border-color: #aaa; color: #555; }
 
-    /* ── Enrich toolbar ── */
+    /* ── AI Search panel ── */
+    .ai-search-row {
+      display: grid;
+      grid-template-columns: 1fr 140px auto;
+      gap: 12px; align-items: end;
+    }
+    .ai-hint {
+      font-size: 0.8rem; color: #888; margin-top: 10px;
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .ai-hint-chip {
+      background: #f0effe; color: #6d28d9; padding: 3px 10px;
+      border-radius: 99px; font-size: 0.75rem; cursor: pointer;
+      border: 1px solid #ddd6fe; transition: background 0.1s;
+    }
+    .ai-hint-chip:hover { background: #ede9fe; }
+
+    .btn-ai {
+      padding: 9px 22px; background: linear-gradient(135deg, #7c3aed, #4f46e5);
+      color: #fff; border: none; border-radius: 7px;
+      font-size: 0.875rem; font-weight: 600; cursor: pointer;
+      height: 40px; transition: opacity 0.15s; white-space: nowrap;
+    }
+    .btn-ai:hover { opacity: 0.88; }
+    .btn-ai:disabled { opacity: 0.45; cursor: default; }
+
+    /* ── Enrich bar ── */
     .enrich-bar {
-      max-width: 960px;
-      margin: 16px auto 0;
-      background: #ede9fe;
-      border: 1.5px solid #c4b5fd;
-      border-radius: 10px;
-      padding: 12px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
+      max-width: 1020px; margin: 14px auto 0;
+      background: #ede9fe; border: 1.5px solid #c4b5fd;
+      border-radius: 10px; padding: 12px 20px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
     }
     .enrich-bar-left { font-size: 0.875rem; color: #4c1d95; font-weight: 500; }
     .enrich-bar-left strong { font-size: 1rem; }
@@ -115,7 +150,7 @@
     .btn-clear-sel:hover { background: #f5f3ff; }
 
     /* ── Results ── */
-    .results-section { max-width: 960px; margin: 20px auto 56px; }
+    .results-section { max-width: 1020px; margin: 18px auto 56px; }
 
     .results-meta {
       display: flex; justify-content: space-between; align-items: center;
@@ -123,6 +158,9 @@
     }
     .results-count { font-size: 0.85rem; color: #666; }
     .results-count strong { color: #1a1a2e; }
+    .ai-mode-note {
+      font-size: 0.78rem; color: #7c3aed; font-style: italic;
+    }
 
     table {
       width: 100%; border-collapse: collapse; background: #fff;
@@ -132,7 +170,7 @@
     thead th {
       background: #1a1a2e; color: #fff; text-align: left;
       padding: 11px 14px; font-weight: 600;
-      font-size: 0.73rem; text-transform: uppercase; letter-spacing: 0.04em;
+      font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em;
     }
     thead th:first-child { width: 40px; text-align: center; }
 
@@ -141,26 +179,37 @@
     tbody tr:hover { background: #f8f9ff; }
     tbody tr.selected { background: #f5f3ff; }
 
-    tbody td { padding: 11px 14px; vertical-align: middle; }
+    tbody td { padding: 10px 14px; vertical-align: middle; }
     tbody td:first-child { text-align: center; }
 
     input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #7c3aed; }
 
     .biz-name { font-weight: 600; color: #1a1a2e; }
-    .biz-addr { color: #888; font-size: 0.78rem; margin-top: 2px; }
+    .biz-addr { color: #888; font-size: 0.77rem; margin-top: 2px; }
 
-    .tag {
+    .tag-sector {
       display: inline-block; padding: 2px 8px; border-radius: 99px;
-      font-size: 0.73rem; font-weight: 500;
+      font-size: 0.7rem; font-weight: 600;
+      background: #e0f2fe; color: #0369a1; margin-bottom: 3px;
+    }
+    .tag-industry {
+      display: inline-block; padding: 2px 8px; border-radius: 99px;
+      font-size: 0.7rem; font-weight: 500;
       background: #ede9fe; color: #5b21b6;
     }
 
-    /* ── Enriched result columns ── */
+    .sim-badge {
+      display: inline-block; padding: 3px 9px; border-radius: 99px;
+      font-size: 0.75rem; font-weight: 700;
+    }
+    .sim-high { background: #d1fae5; color: #065f46; }
+    .sim-mid  { background: #fef3c7; color: #92400e; }
+    .sim-low  { background: #fee2e2; color: #991b1b; }
+
     .website-link { color: #4f46e5; text-decoration: none; font-size: 0.82rem; }
     .website-link:hover { text-decoration: underline; }
     .maps-link { color: #059669; font-size: 0.78rem; text-decoration: none; }
     .maps-link:hover { text-decoration: underline; }
-    .enriching-spinner { color: #888; font-size: 0.78rem; font-style: italic; }
 
     /* ── Pagination ── */
     .pagination { display: flex; justify-content: center; gap: 5px; margin-top: 18px; }
@@ -172,23 +221,19 @@
     .pagination button.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
     .pagination button:disabled { opacity: 0.35; cursor: default; }
 
-    /* ── States ── */
     .empty-state {
       text-align: center; padding: 56px 20px; color: #888;
       background: #fff; border-radius: 10px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.06);
     }
     .empty-state .icon { font-size: 2.2rem; margin-bottom: 10px; }
-
     .loading { text-align: center; padding: 48px; color: #888; font-size: 0.9rem; }
 
-    /* ── Toast ── */
     #toast {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
       background: #1a1a2e; color: #fff; padding: 10px 22px;
       border-radius: 8px; font-size: 0.875rem; font-weight: 500;
-      opacity: 0; pointer-events: none; transition: opacity 0.25s;
-      z-index: 999;
+      opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 999;
     }
     #toast.show { opacity: 1; }
   </style>
@@ -196,46 +241,84 @@
 <body>
 
 <header>
-  <h1>SBA Business Search</h1>
-  <span>PPP Loan Database</span>
+  <div class="header-left">
+    <h1>SBA Business Search</h1>
+    <span>PPP Loan Database &mdash; 1.87M businesses</span>
+  </div>
+  <div class="header-badge">AI-Powered</div>
 </header>
 
-<!-- Search form -->
+<!-- Search card with mode tabs -->
 <div class="search-card">
-  <h2>Find businesses by industry and location</h2>
-  <div class="fields">
-    <div class="field">
-      <label>Industry</label>
-      <select id="sel-industry"><option value="">All industries</option></select>
+  <div class="mode-tabs">
+    <button class="mode-tab active" id="tab-filter">Filter Search</button>
+    <button class="mode-tab" id="tab-ai">AI Semantic Search</button>
+  </div>
+
+  <!-- Filter mode -->
+  <div class="search-panel" id="panel-filter">
+    <div class="fields">
+      <div class="field">
+        <label>Sector</label>
+        <select id="sel-sector"><option value="">All sectors</option></select>
+      </div>
+      <div class="field">
+        <label>Industry</label>
+        <select id="sel-industry" disabled><option value="">All industries</option></select>
+      </div>
+      <div class="field">
+        <label>State</label>
+        <select id="sel-state"><option value="">All states</option></select>
+      </div>
+      <div class="field">
+        <label>City</label>
+        <input type="text" id="inp-city" placeholder="e.g. Brooklyn">
+      </div>
+      <div class="field">
+        <label>Business name</label>
+        <input type="text" id="inp-name" placeholder="e.g. Pizza">
+      </div>
     </div>
-    <div class="field">
-      <label>State</label>
-      <select id="sel-state"><option value="">All states</option></select>
-    </div>
-    <div class="field">
-      <label>City</label>
-      <input type="text" id="inp-city" placeholder="e.g. Brooklyn">
-    </div>
-    <div class="field">
-      <label>Business name</label>
-      <input type="text" id="inp-name" placeholder="e.g. Pizza">
-    </div>
-    <div class="btn-row">
+    <div class="btn-row" style="margin-top:14px;">
       <button class="btn-primary" id="btn-search">Search</button>
       <button class="btn-ghost" id="btn-clear">Clear</button>
     </div>
   </div>
+
+  <!-- AI Semantic Search mode -->
+  <div class="search-panel" id="panel-ai" style="display:none">
+    <div class="ai-search-row">
+      <div class="field">
+        <label>Describe the businesses you're looking for</label>
+        <input type="text" id="inp-semantic" placeholder='e.g. "metal fabrication shops" or "hair salons" or "auto body repair"'>
+      </div>
+      <div class="field">
+        <label>State</label>
+        <select id="sel-state-ai"><option value="">All states</option></select>
+      </div>
+      <button class="btn-ai" id="btn-semantic">AI Search</button>
+    </div>
+    <div class="ai-hint">
+      Try:
+      <span class="ai-hint-chip" onclick="setQuery('metal fabrication shops')">metal fabrication shops</span>
+      <span class="ai-hint-chip" onclick="setQuery('italian restaurants')">italian restaurants</span>
+      <span class="ai-hint-chip" onclick="setQuery('auto body repair')">auto body repair</span>
+      <span class="ai-hint-chip" onclick="setQuery('hair salons and barbershops')">hair salons</span>
+      <span class="ai-hint-chip" onclick="setQuery('software development companies')">software companies</span>
+      <span class="ai-hint-chip" onclick="setQuery('construction contractors')">construction contractors</span>
+    </div>
+  </div>
 </div>
 
-<!-- Enrich toolbar (shown when rows are selected) -->
+<!-- Enrich toolbar -->
 <div class="enrich-bar" id="enrich-bar" style="display:none">
   <div class="enrich-bar-left">
     <strong id="sel-count">0</strong> businesses selected
-    &nbsp;·&nbsp; Finds website (Google Places) → scrapes email &amp; phone from site
+    &nbsp;&middot;&nbsp; Finds website (Google Places) &rarr; scrapes email &amp; phone
   </div>
   <div class="enrich-bar-right">
     <button class="btn-clear-sel" id="btn-clear-sel">Clear selection</button>
-    <button class="btn-enrich" id="btn-enrich">⚡ Find Contacts &amp; Export CSV</button>
+    <button class="btn-enrich" id="btn-enrich">Find Contacts &amp; Export CSV</button>
   </div>
 </div>
 
@@ -253,50 +336,91 @@
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
-let currentPage = 1;
-let selectedRows = {};   // key: borrower_name+city, value: row object
+let currentPage  = 1;
+let searchMode   = "filter"; // "filter" | "ai"
+let selectedRows = {};
+let lastAIResults = [];
 const MAX_SELECT = 10;
 
-// ── Filters ────────────────────────────────────────────────────────────────
+// ── Mode switching ─────────────────────────────────────────────────────────
+document.getElementById("tab-filter").addEventListener("click", () => setMode("filter"));
+document.getElementById("tab-ai").addEventListener("click",     () => setMode("ai"));
+
+function setMode(mode) {
+  searchMode = mode;
+  document.getElementById("panel-filter").style.display = mode === "filter" ? "block" : "none";
+  document.getElementById("panel-ai").style.display     = mode === "ai"     ? "block" : "none";
+  document.getElementById("tab-filter").classList.toggle("active", mode === "filter");
+  document.getElementById("tab-ai").classList.toggle("active",     mode === "ai");
+}
+
+// ── Load filters ───────────────────────────────────────────────────────────
 async function loadFilters() {
-  const [indRes, stRes] = await Promise.all([
-    fetch("/api/industries").then(r => r.json()),
+  const [sectors, states] = await Promise.all([
+    fetch("/api/sectors").then(r => r.json()),
     fetch("/api/states").then(r => r.json()),
   ]);
 
-  const indSel = document.getElementById("sel-industry");
-  indRes.forEach(({ name, count }) => {
+  const secSel = document.getElementById("sel-sector");
+  sectors.forEach(({ name, count }) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = `${name} (${count.toLocaleString()})`;
+    secSel.appendChild(opt);
+  });
+
+  // Populate both state dropdowns
+  [document.getElementById("sel-state"), document.getElementById("sel-state-ai")].forEach(sel => {
+    states.forEach(st => {
+      const opt = document.createElement("option");
+      opt.value = st; opt.textContent = st;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+// ── Sector → Industry cascade ──────────────────────────────────────────────
+document.getElementById("sel-sector").addEventListener("change", async function() {
+  const sector  = this.value;
+  const indSel  = document.getElementById("sel-industry");
+  indSel.innerHTML = "<option value=''>All industries</option>";
+
+  if (!sector) {
+    indSel.disabled = true;
+    return;
+  }
+
+  indSel.disabled = true;
+  const industries = await fetch(`/api/industries?sector=${encodeURIComponent(sector)}`).then(r => r.json());
+  industries.forEach(({ name, count }) => {
     const opt = document.createElement("option");
     opt.value = name;
     opt.textContent = `${name} (${count.toLocaleString()})`;
     indSel.appendChild(opt);
   });
+  indSel.disabled = false;
+});
 
-  const stSel = document.getElementById("sel-state");
-  stRes.forEach(st => {
-    const opt = document.createElement("option");
-    opt.value = st; opt.textContent = st;
-    stSel.appendChild(opt);
-  });
-}
-
-// ── Search ─────────────────────────────────────────────────────────────────
+// ── Filter search ──────────────────────────────────────────────────────────
 function buildParams(page) {
   const p = new URLSearchParams();
+  const sector   = document.getElementById("sel-sector").value;
   const industry = document.getElementById("sel-industry").value;
   const state    = document.getElementById("sel-state").value;
   const city     = document.getElementById("inp-city").value.trim();
   const name     = document.getElementById("inp-name").value.trim();
+  if (sector)   p.set("sector",   sector);
   if (industry) p.set("industry", industry);
-  if (state)    p.set("state", state);
-  if (city)     p.set("city", city);
-  if (name)     p.set("name", name);
+  if (state)    p.set("state",    state);
+  if (city)     p.set("city",     city);
+  if (name)     p.set("name",     name);
   p.set("page", page);
   return p;
 }
 
 async function search(page) {
-  currentPage = page;
+  currentPage  = page;
+  lastAIResults = [];
   const section   = document.getElementById("results-section");
   const container = document.getElementById("results-container");
   section.style.display = "block";
@@ -305,27 +429,93 @@ async function search(page) {
   document.getElementById("results-count").textContent = "";
 
   const data = await fetch(`/api/search?${buildParams(page)}`).then(r => r.json());
-  renderResults(data);
+  renderResults(data.results, {
+    total: data.total, page: data.page,
+    total_pages: data.total_pages, mode: "filter",
+  });
 }
+
+// ── AI Semantic search ─────────────────────────────────────────────────────
+function setQuery(q) {
+  document.getElementById("inp-semantic").value = q;
+  document.getElementById("inp-semantic").focus();
+}
+
+async function semanticSearch() {
+  const q     = document.getElementById("inp-semantic").value.trim();
+  const state = document.getElementById("sel-state-ai").value;
+  const btn   = document.getElementById("btn-semantic");
+
+  if (!q) { toast("Enter a search query"); return; }
+
+  btn.disabled = true;
+  btn.textContent = "Searching...";
+
+  const section   = document.getElementById("results-section");
+  const container = document.getElementById("results-container");
+  section.style.display = "block";
+  container.innerHTML = '<div class="loading">Running semantic search...</div>';
+  document.getElementById("pagination").innerHTML = "";
+  document.getElementById("results-count").textContent = "";
+
+  const params = new URLSearchParams({ q, limit: 50 });
+  if (state) params.set("state", state);
+
+  try {
+    const data = await fetch(`/api/semantic-search?${params}`).then(r => r.json());
+    lastAIResults = data.results;
+    renderResults(data.results, {
+      total: data.count, page: 1,
+      total_pages: 1, mode: "ai", query: data.query,
+    });
+  } catch(e) {
+    toast("Search failed — check console");
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "AI Search";
+  }
+}
+
+document.getElementById("btn-semantic").addEventListener("click", semanticSearch);
+document.getElementById("inp-semantic").addEventListener("keydown", e => {
+  if (e.key === "Enter") semanticSearch();
+});
 
 // ── Render results ─────────────────────────────────────────────────────────
 function rowKey(r) {
   return (r.borrower_name + "|" + r.borrower_city + "|" + r.borrower_state).toLowerCase();
 }
 
-function renderResults(data) {
-  const container = document.getElementById("results-container");
-  document.getElementById("results-count").innerHTML =
-    `<strong>${data.total.toLocaleString()}</strong> businesses found`;
-  document.getElementById("page-info").textContent =
-    data.total_pages > 1 ? `Page ${data.page} of ${data.total_pages}` : "";
+function simBadge(sim) {
+  if (sim == null) return "";
+  const pct = Math.round(sim * 100);
+  const cls = pct >= 80 ? "sim-high" : pct >= 65 ? "sim-mid" : "sim-low";
+  return `<span class="sim-badge ${cls}">${pct}% match</span>`;
+}
 
-  if (!data.results.length) {
-    container.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><p>No businesses found. Try adjusting your filters.</p></div>`;
+function renderResults(results, meta) {
+  const container = document.getElementById("results-container");
+  const isAI      = meta.mode === "ai";
+
+  const countEl = document.getElementById("results-count");
+  countEl.innerHTML = isAI
+    ? `<strong>${meta.total}</strong> businesses matched &nbsp;<span class="ai-mode-note">AI Semantic Search &mdash; "${esc(meta.query || "")}"</span>`
+    : `<strong>${meta.total.toLocaleString()}</strong> businesses found`;
+
+  document.getElementById("page-info").textContent =
+    (!isAI && meta.total_pages > 1) ? `Page ${meta.page} of ${meta.total_pages}` : "";
+
+  if (!results.length) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><p>No businesses found. Try adjusting your search.</p></div>`;
     return;
   }
 
-  const rows = data.results.map(r => {
+  // Store for checkbox lookup
+  window._currentRows = {};
+  results.forEach(r => { window._currentRows[rowKey(r)] = r; });
+
+  const rows = results.map(r => {
     const key      = rowKey(r);
     const checked  = selectedRows[key] ? "checked" : "";
     const selClass = selectedRows[key] ? "selected" : "";
@@ -338,15 +528,15 @@ function renderResults(data) {
         </td>
         <td>${esc(r.borrower_city || "")}</td>
         <td>${esc(r.borrower_state || "")}</td>
-        <td><span class="tag">${esc(r.industry || "")}</span></td>
-        <td style="color:#666;font-size:0.78rem;">${esc(r.naics_code || "")}</td>
+        <td>
+          ${r.naics_sector ? `<div class="tag-sector">${esc(r.naics_sector)}</div>` : ""}
+          <div class="tag-industry">${esc(r.industry || "")}</div>
+        </td>
         <td style="text-align:right;">${r.jobs_reported ?? "—"}</td>
+        ${isAI ? `<td>${simBadge(r.similarity)}</td>` : ""}
+        <td id="enrich-${esc(key)}"></td>
       </tr>`;
   });
-
-  // Store current page rows for checkbox lookup
-  window._currentRows = {};
-  data.results.forEach(r => { window._currentRows[rowKey(r)] = r; });
 
   container.innerHTML = `
     <table>
@@ -356,18 +546,23 @@ function renderResults(data) {
           <th>Business Name</th>
           <th>City</th>
           <th>State</th>
-          <th>Industry</th>
-          <th>NAICS</th>
+          <th>Sector / Industry</th>
           <th style="text-align:right;">Jobs</th>
+          ${isAI ? "<th>Match</th>" : ""}
+          <th>Contact</th>
         </tr>
       </thead>
       <tbody>${rows.join("")}</tbody>
     </table>`;
 
-  // Select-all checkbox
+  bindCheckboxes();
+  if (!isAI) renderPagination(meta.page, meta.total_pages);
+}
+
+// ── Checkbox handling ──────────────────────────────────────────────────────
+function bindCheckboxes() {
   document.getElementById("cb-all").addEventListener("change", function() {
-    const cbs = document.querySelectorAll(".row-cb");
-    cbs.forEach(cb => {
+    document.querySelectorAll(".row-cb").forEach(cb => {
       const key = cb.dataset.key;
       if (this.checked) {
         if (Object.keys(selectedRows).length >= MAX_SELECT) return;
@@ -383,7 +578,6 @@ function renderResults(data) {
     updateEnrichBar();
   });
 
-  // Individual checkboxes
   document.querySelectorAll(".row-cb").forEach(cb => {
     cb.addEventListener("change", function() {
       const key = this.dataset.key;
@@ -402,16 +596,13 @@ function renderResults(data) {
       updateEnrichBar();
     });
   });
-
-  renderPagination(data.page, data.total_pages);
 }
 
 // ── Enrich bar ─────────────────────────────────────────────────────────────
 function updateEnrichBar() {
   const count = Object.keys(selectedRows).length;
-  const bar   = document.getElementById("enrich-bar");
   document.getElementById("sel-count").textContent = count;
-  bar.style.display = count > 0 ? "flex" : "none";
+  document.getElementById("enrich-bar").style.display = count > 0 ? "flex" : "none";
   document.getElementById("btn-enrich").disabled = count === 0;
 }
 
@@ -431,36 +622,32 @@ document.getElementById("btn-enrich").addEventListener("click", async () => {
   const businesses = Object.values(selectedRows);
   const btn = document.getElementById("btn-enrich");
   btn.disabled = true;
-  btn.textContent = "⏳ Looking up websites...";
+  btn.textContent = "Looking up websites...";
 
   try {
-    const res = await fetch("/api/enrich", {
+    const res  = await fetch("/api/enrich", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ businesses }),
     });
     const data = await res.json();
-
     if (data.error) { toast("Error: " + data.error); return; }
 
-    // Show enriched data in the table rows
     data.results.forEach(r => {
       const key = rowKey(r);
-      const row = document.querySelector(`tr[data-key="${CSS.escape(key)}"]`);
-      if (!row) return;
-      const lastTd = row.querySelector("td:last-child");
+      const cell = document.getElementById(`enrich-${CSS.escape(key)}`);
+      if (!cell) return;
       let html = "";
-      if (r.website)       html += `<a class="website-link" href="${esc(r.website)}" target="_blank">🌐 Website</a><br>`;
-      if (r.email)         html += `<span style="color:#059669;font-size:0.78rem;">✉️ ${esc(r.email)}</span><br>`;
-      if (r.contact_name)  html += `<span style="color:#b45309;font-size:0.78rem;">👤 ${esc(r.contact_name)}</span><br>`;
-      if (r.phone)         html += `<span style="color:#555;font-size:0.78rem;">📞 ${esc(r.phone)}</span><br>`;
-      if (r.maps_url)      html += `<a class="maps-link" href="${esc(r.maps_url)}" target="_blank">📍 Maps</a>`;
+      if (r.website)      html += `<a class="website-link" href="${esc(r.website)}" target="_blank">Website</a><br>`;
+      if (r.email)        html += `<span style="color:#059669;font-size:0.78rem;">${esc(r.email)}</span><br>`;
+      if (r.contact_name) html += `<span style="color:#b45309;font-size:0.78rem;">${esc(r.contact_name)}</span><br>`;
+      if (r.phone)        html += `<span style="color:#555;font-size:0.78rem;">${esc(r.phone)}</span><br>`;
+      if (r.maps_url)     html += `<a class="maps-link" href="${esc(r.maps_url)}" target="_blank">Maps</a>`;
       if (!r.website && !r.phone && !r.email)
         html = `<span style="color:#bbb;font-size:0.78rem;">Not found</span>`;
-      lastTd.innerHTML = html;
+      cell.innerHTML = html;
     });
 
-    // Download CSV
     const csvRes = await fetch("/api/export-csv", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -469,18 +656,16 @@ document.getElementById("btn-enrich").addEventListener("click", async () => {
     const blob = await csvRes.blob();
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
-    a.href     = url;
-    a.download = "sba_enriched_leads.csv";
-    a.click();
+    a.href = url; a.download = "sba_enriched_leads.csv"; a.click();
     URL.revokeObjectURL(url);
 
-    toast(`✅ Exported ${data.results.length} enriched businesses`);
-  } catch (e) {
+    toast(`Exported ${data.results.length} enriched businesses`);
+  } catch(e) {
     toast("Something went wrong — check console");
     console.error(e);
   } finally {
     btn.disabled = false;
-    btn.textContent = "⚡ Enrich & Export CSV";
+    btn.textContent = "Find Contacts & Export CSV";
   }
 });
 
@@ -488,46 +673,30 @@ document.getElementById("btn-enrich").addEventListener("click", async () => {
 function renderPagination(page, total) {
   const el = document.getElementById("pagination");
   if (total <= 1) { el.innerHTML = ""; return; }
-
-  let html = `<button ${page===1?"disabled":""} onclick="search(${page-1})">&#8592; Prev</button>`;
+  let html = `<button ${page===1?"disabled":""} onclick="search(${page-1})">&larr; Prev</button>`;
   const range = [];
-  for (let i = Math.max(1, page-2); i <= Math.min(total, page+2); i++) range.push(i);
+  for (let i = Math.max(1,page-2); i <= Math.min(total,page+2); i++) range.push(i);
   if (range[0] > 1) html += `<button onclick="search(1)">1</button>${range[0]>2?'<button disabled>…</button>':""}`;
   range.forEach(i => { html += `<button class="${i===page?"active":""}" onclick="search(${i})">${i}</button>`; });
   if (range.at(-1) < total) html += `${range.at(-1)<total-1?'<button disabled>…</button>':""}<button onclick="search(${total})">${total}</button>`;
-  html += `<button ${page===total?"disabled":""} onclick="search(${page+1})">Next &#8594;</button>`;
+  html += `<button ${page===total?"disabled":""} onclick="search(${page+1})">Next &rarr;</button>`;
   el.innerHTML = html;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-function esc(s) {
-  return String(s ?? "")
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
-
-let toastTimer;
-function toast(msg) {
-  const el = document.getElementById("toast");
-  el.textContent = msg; el.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("show"), 3000);
-}
-
-// ── Wire up controls ───────────────────────────────────────────────────────
+// ── Wire up filter controls ────────────────────────────────────────────────
 document.getElementById("btn-search").addEventListener("click", () => {
-  selectedRows = {};
-  updateEnrichBar();
-  search(1);
+  selectedRows = {}; updateEnrichBar(); search(1);
 });
 
 document.getElementById("btn-clear").addEventListener("click", () => {
-  document.getElementById("sel-industry").value = "";
-  document.getElementById("sel-state").value = "";
-  document.getElementById("inp-city").value = "";
-  document.getElementById("inp-name").value = "";
+  document.getElementById("sel-sector").value   = "";
+  document.getElementById("sel-industry").innerHTML = "<option value=''>All industries</option>";
+  document.getElementById("sel-industry").disabled  = true;
+  document.getElementById("sel-state").value    = "";
+  document.getElementById("inp-city").value     = "";
+  document.getElementById("inp-name").value     = "";
   document.getElementById("results-section").style.display = "none";
-  document.getElementById("enrich-bar").style.display = "none";
+  document.getElementById("enrich-bar").style.display      = "none";
   selectedRows = {};
 });
 
@@ -536,6 +705,20 @@ document.getElementById("btn-clear").addEventListener("click", () => {
     if (e.key === "Enter") { selectedRows = {}; updateEnrichBar(); search(1); }
   });
 });
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+}
 
 loadFilters();
 </script>

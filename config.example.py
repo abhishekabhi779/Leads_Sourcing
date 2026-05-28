@@ -2,15 +2,15 @@
 # SBA Business Search — Configuration Template
 # ============================================================
 # 1. Copy this file to config.py
-# 2. Fill in your MySQL password and CSV file paths
+# 2. Fill in your PostgreSQL password and CSV file paths
 # 3. Never commit config.py to git (it's in .gitignore)
 
-MYSQL_CONFIG = {
+PG_CONFIG = {
     "host":     "localhost",
-    "user":     "root",
-    "password": "YOUR_MYSQL_PASSWORD_HERE",
-    "database": "sba_leads",
-    "charset":  "utf8mb4",
+    "port":     5432,
+    "user":     "postgres",
+    "password": "YOUR_PG_PASSWORD_HERE",
+    "dbname":   "sba_leads",
 }
 
 # Absolute paths to your SBA PPP CSV files
@@ -22,6 +22,9 @@ CSV_FILES = [
 
 # CSV encoding (SBA files use latin-1)
 CSV_ENCODING = "latin-1"
+
+# Google Places API key — NEVER commit this file to git (.gitignore covers it)
+GOOGLE_PLACES_API_KEY = "YOUR_GOOGLE_PLACES_API_KEY_HERE"
 
 # Flask server settings
 FLASK_HOST  = "127.0.0.1"

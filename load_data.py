@@ -1,12 +1,40 @@
 """
 SBA Business Search — Data Loader (ETL)
-Loads SBA PPP CSV files into MySQL with NAICS-based industry classification.
+Loads SBA PPP CSV files into PostgreSQL with NAICS-based industry classification.
 Only stores columns needed for business lead generation.
 Usage: python load_data.py
 """
 import csv, sys, time, os
-import pymysql
-from config import MYSQL_CONFIG, CSV_FILES, CSV_ENCODING
+import psycopg2
+from psycopg2.extras import execute_values
+from config import PG_CONFIG, CSV_FILES, CSV_ENCODING
+
+# 2-digit NAICS prefix → broad sector (parent of industry)
+NAICS_SECTOR_MAP = {
+    "11": "Agriculture & Farming",
+    "21": "Mining & Energy",
+    "22": "Utilities",
+    "23": "Construction",
+    "31": "Manufacturing",
+    "32": "Manufacturing",
+    "33": "Manufacturing",
+    "42": "Wholesale Trade",
+    "44": "Retail Trade",
+    "45": "Retail Trade",
+    "48": "Transportation & Warehousing",
+    "49": "Transportation & Warehousing",
+    "51": "Technology, Media & Telecom",
+    "52": "Finance & Insurance",
+    "53": "Real Estate & Rental",
+    "54": "Professional Services",
+    "56": "Administrative & Support Services",
+    "61": "Education",
+    "62": "Healthcare & Social Services",
+    "71": "Entertainment & Recreation",
+    "72": "Food Service & Hospitality",
+    "81": "Personal & Repair Services",
+    "92": "Government & Public Administration",
+}
 
 # Only the columns we actually need — everything else is dropped at load time
 COLUMN_MAP = {
@@ -135,6 +163,11 @@ def naics_to_industry(code):
             return name
     return "Other / Unknown"
 
+def naics_to_sector(code):
+    if not code:
+        return "Other / Unknown"
+    return NAICS_SECTOR_MAP.get(str(code).strip()[:2], "Other / Unknown")
+
 def safe_dec(v):
     if not v or not v.strip(): return None
     try: return float(v.strip().replace(",", ""))
@@ -145,12 +178,25 @@ def safe_int(v):
     try: return int(float(v.strip().replace(",", "")))
     except: return None
 
-def create_db(cursor):
-    cursor.execute("CREATE DATABASE IF NOT EXISTS sba_leads CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-    cursor.execute("USE sba_leads")
+def ensure_db(cfg):
+    """Create the sba_leads database if it doesn't exist."""
+    admin_cfg = {**cfg, "dbname": "postgres"}
+    conn = psycopg2.connect(**admin_cfg)
+    conn.autocommit = True
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (cfg["dbname"],))
+    if not cur.fetchone():
+        cur.execute(f'CREATE DATABASE {cfg["dbname"]}')
+        print(f"  Created database: {cfg['dbname']}")
+    else:
+        print(f"  Database '{cfg['dbname']}' already exists")
+    cur.close()
+    conn.close()
+
+def create_table(cursor):
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS leads (
-        id                      INT AUTO_INCREMENT PRIMARY KEY,
+        id                      SERIAL PRIMARY KEY,
         loan_number             VARCHAR(20) UNIQUE,
         borrower_name           VARCHAR(255),
         borrower_address        VARCHAR(255),
@@ -158,44 +204,49 @@ def create_db(cursor):
         borrower_state          VARCHAR(5),
         borrower_zip            VARCHAR(20),
         naics_code              VARCHAR(10),
+        naics_sector            VARCHAR(100),
         industry                VARCHAR(100),
         business_type           VARCHAR(100),
         franchise_name          VARCHAR(255),
         loan_status             VARCHAR(50),
         jobs_reported           INT,
-        current_approval_amount DECIMAL(15,2),
+        current_approval_amount NUMERIC(15,2),
         date_approved           VARCHAR(20),
-        source_file             VARCHAR(255),
-        FULLTEXT idx_ft_name (borrower_name)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        source_file             VARCHAR(255)
+    )
     """)
 
-    # Migrate: add industry column if table was created before this version
+    # Add industry column if upgrading from old schema
     try:
-        cursor.execute("ALTER TABLE leads ADD COLUMN industry VARCHAR(100) AFTER naics_code")
+        cursor.execute("ALTER TABLE leads ADD COLUMN industry VARCHAR(100)")
         print("  Migrated: added 'industry' column")
-    except pymysql.err.OperationalError as e:
-        if e.args[0] != 1060: raise  # 1060 = column already exists
+    except psycopg2.errors.DuplicateColumn:
+        pass
 
-    print("  Database and table ready")
+    print("  Table ready")
 
 def create_indexes(cursor):
     indexes = [
         # Composite indexes — most useful for "restaurants in NY" style queries
         ("idx_state_industry",  "borrower_state, industry"),
         ("idx_state_city",      "borrower_state, borrower_city"),
+        ("idx_naics_sector",    "naics_sector"),
+        ("idx_sector_state",    "naics_sector, borrower_state"),
         # Single-column indexes
-        ("idx_naics",           "naics_code"),
-        ("idx_bname",           "borrower_name"),
-        ("idx_loan_status",     "loan_status"),
-        ("idx_jobs",            "jobs_reported"),
-        ("idx_amount",          "current_approval_amount"),
+        ("idx_naics",          "naics_code"),
+        ("idx_bname",          "borrower_name"),
+        ("idx_loan_status",    "loan_status"),
+        ("idx_jobs",           "jobs_reported"),
+        ("idx_amount",         "current_approval_amount"),
     ]
     for name, cols in indexes:
-        try:
-            cursor.execute(f"CREATE INDEX {name} ON leads ({cols})")
-        except pymysql.err.OperationalError as e:
-            if e.args[0] != 1061: raise  # 1061 = index already exists
+        cursor.execute(f"CREATE INDEX IF NOT EXISTS {name} ON leads ({cols})")
+
+    # Full-text search index on business name
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ft_name ON leads "
+        "USING gin(to_tsvector('english', coalesce(borrower_name, '')))"
+    )
     print("  Indexes ready")
 
 def load_csv(cursor, filepath, batch_size=5000):
@@ -204,11 +255,18 @@ def load_csv(cursor, filepath, batch_size=5000):
 
     with open(filepath, "r", encoding=CSV_ENCODING) as f:
         reader = csv.DictReader(f)
-        # Only map columns that exist in this CSV file
         csv_to_db = {c: COLUMN_MAP[c] for c in reader.fieldnames if c in COLUMN_MAP}
-        db_cols = list(csv_to_db.values()) + ["industry", "source_file"]
-        placeholders = ", ".join(["%s"] * len(db_cols))
-        sql = f"INSERT IGNORE INTO leads ({', '.join(db_cols)}) VALUES ({placeholders})"
+        db_cols = list(csv_to_db.values()) + ["naics_sector", "industry", "source_file"]
+        sql = (
+            f"INSERT INTO leads ({', '.join(db_cols)}) VALUES %s "
+            "ON CONFLICT (loan_number) DO NOTHING"
+        )
+        # Fallback single-row SQL for error recovery
+        single_sql = (
+            f"INSERT INTO leads ({', '.join(db_cols)}) "
+            f"VALUES ({', '.join(['%s'] * len(db_cols))}) "
+            "ON CONFLICT (loan_number) DO NOTHING"
+        )
 
         batch, total, skipped, t0 = [], 0, 0, time.time()
 
@@ -225,6 +283,7 @@ def load_csv(cursor, filepath, batch_size=5000):
                 else:
                     vals.append(raw if raw else None)
 
+            vals.append(naics_to_sector(naics_raw))
             vals.append(naics_to_industry(naics_raw))
             vals.append(filename)
             batch.append(tuple(vals))
@@ -232,10 +291,10 @@ def load_csv(cursor, filepath, batch_size=5000):
 
             if len(batch) >= batch_size:
                 try:
-                    cursor.executemany(sql, batch)
+                    execute_values(cursor, sql, batch)
                 except Exception:
                     for r in batch:
-                        try: cursor.execute(sql, r)
+                        try: cursor.execute(single_sql, r)
                         except: skipped += 1
                 batch = []
                 elapsed = time.time() - t0
@@ -243,10 +302,10 @@ def load_csv(cursor, filepath, batch_size=5000):
 
         if batch:
             try:
-                cursor.executemany(sql, batch)
+                execute_values(cursor, sql, batch)
             except Exception:
                 for r in batch:
-                    try: cursor.execute(sql, r)
+                    try: cursor.execute(single_sql, r)
                     except: skipped += 1
 
     elapsed = time.time() - t0
@@ -260,15 +319,15 @@ def main():
     print("  SBA Business Search — Data Loader")
     print("=" * 60)
 
-    cfg = MYSQL_CONFIG.copy()
-    cfg.pop("database", None)
-    print("\nConnecting to MySQL...")
-    conn = pymysql.connect(**cfg, autocommit=True)
+    print("\nEnsuring database exists...")
+    ensure_db(PG_CONFIG)
+
+    print("Connecting to sba_leads...")
+    conn = psycopg2.connect(**PG_CONFIG)
+    conn.autocommit = True
     cur = conn.cursor()
 
-    create_db(cur)
-    cur.execute("SET GLOBAL max_allowed_packet = 67108864")
-    cur.execute("SET SESSION wait_timeout = 28800")
+    create_table(cur)
 
     for fp in CSV_FILES:
         if not os.path.exists(fp):
@@ -277,8 +336,6 @@ def main():
         load_csv(cur, fp)
 
     print("\nBuilding indexes...")
-    conn.ping(reconnect=True)
-    cur = conn.cursor()
     create_indexes(cur)
 
     cur.execute("SELECT COUNT(*) FROM leads")

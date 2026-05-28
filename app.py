@@ -5,14 +5,31 @@ Run: python app.py
 import time
 import requests
 from flask import Flask, request, jsonify, render_template, Response
-import pymysql
-from config import MYSQL_CONFIG, FLASK_HOST, FLASK_PORT, FLASK_DEBUG, GOOGLE_PLACES_API_KEY
+import psycopg2
+import psycopg2.extras
+from pgvector.psycopg2 import register_vector
+from sentence_transformers import SentenceTransformer
+from config import PG_CONFIG, FLASK_HOST, FLASK_PORT, FLASK_DEBUG, GOOGLE_PLACES_API_KEY
 from scraper import scrape_contact
 
 app = Flask(__name__)
 
+# Loaded once at startup — stays in memory for the life of the process
+_embed_model = None
+
+def get_embed_model():
+    global _embed_model
+    if _embed_model is None:
+        _embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _embed_model
+
 def get_db():
-    return pymysql.connect(**MYSQL_CONFIG, cursorclass=pymysql.cursors.DictCursor)
+    conn = psycopg2.connect(**PG_CONFIG)
+    register_vector(conn)
+    return conn
+
+def get_cursor(conn):
+    return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
 
@@ -25,22 +42,48 @@ def index():
 @app.route("/api/industries")
 def api_industries():
     conn = get_db()
-    cur = conn.cursor()
+    cur = get_cursor(conn)
+    sector = request.args.get("sector", "").strip()
+    if sector:
+        cur.execute("""
+            SELECT industry AS name, COUNT(*) AS count
+            FROM leads
+            WHERE industry IS NOT NULL AND industry != ''
+              AND naics_sector = %s
+            GROUP BY industry
+            ORDER BY industry
+        """, [sector])
+    else:
+        cur.execute("""
+            SELECT industry AS name, COUNT(*) AS count
+            FROM leads
+            WHERE industry IS NOT NULL AND industry != ''
+            GROUP BY industry
+            ORDER BY industry
+        """)
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/sectors")
+def api_sectors():
+    conn = get_db()
+    cur = get_cursor(conn)
     cur.execute("""
-        SELECT industry AS name, COUNT(*) AS count
+        SELECT naics_sector AS name, COUNT(*) AS count
         FROM leads
-        WHERE industry IS NOT NULL AND industry != ''
-        GROUP BY industry
-        ORDER BY industry
+        WHERE naics_sector IS NOT NULL AND naics_sector != ''
+        GROUP BY naics_sector
+        ORDER BY naics_sector
     """)
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return jsonify(rows)
+    return jsonify([dict(r) for r in rows])
 
 @app.route("/api/states")
 def api_states():
     conn = get_db()
-    cur = conn.cursor()
+    cur = get_cursor(conn)
     cur.execute("""
         SELECT DISTINCT borrower_state AS state
         FROM leads
@@ -56,9 +99,14 @@ def api_states():
 @app.route("/api/search")
 def api_search():
     conn = get_db()
-    cur = conn.cursor()
+    cur = get_cursor(conn)
 
     clauses, params = [], []
+
+    sector = request.args.get("sector", "").strip()
+    if sector:
+        clauses.append("naics_sector = %s")
+        params.append(sector)
 
     industry = request.args.get("industry", "").strip()
     if industry:
@@ -72,12 +120,12 @@ def api_search():
 
     city = request.args.get("city", "").strip()
     if city:
-        clauses.append("borrower_city LIKE %s")
+        clauses.append("borrower_city ILIKE %s")
         params.append(f"%{city}%")
 
     name = request.args.get("name", "").strip()
     if name:
-        clauses.append("borrower_name LIKE %s")
+        clauses.append("borrower_name ILIKE %s")
         params.append(f"%{name}%")
 
     where = " AND ".join(clauses) if clauses else "1=1"
@@ -96,6 +144,7 @@ def api_search():
             borrower_city,
             borrower_state,
             borrower_zip,
+            naics_sector,
             industry,
             naics_code,
             business_type,
@@ -107,7 +156,7 @@ def api_search():
         ORDER BY borrower_name ASC
         LIMIT %s OFFSET %s
     """, params + [per_page, offset])
-    rows = cur.fetchall()
+    rows = [dict(r) for r in cur.fetchall()]
 
     for row in rows:
         for k, v in row.items():
@@ -123,6 +172,75 @@ def api_search():
         "total_pages": max(1, (total + per_page - 1) // per_page),
     })
 
+# ── Semantic Search ───────────────────────────────────────────────────────────
+
+@app.route("/api/semantic-search")
+def api_semantic_search():
+    """
+    Natural language search using vector similarity.
+    Query is embedded with the same model used at setup time, then compared
+    against the stored industry embeddings via cosine distance (HNSW index).
+
+    Params:
+      q      — free-text query, e.g. "metal fabrication shops"
+      state  — optional state filter (applied after vector search)
+      limit  — number of results (default 50, max 200)
+    """
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify({"error": "q parameter required"}), 400
+
+    state  = request.args.get("state", "").strip()
+    limit  = min(int(request.args.get("limit", 50)), 200)
+
+    model  = get_embed_model()
+    embedding = model.encode(
+        f"sector: unknown | industry: {q}",
+        normalize_embeddings=True
+    ).tolist()
+
+    conn = get_db()
+    cur  = get_cursor(conn)
+
+    state_clause = "AND borrower_state = %s" if state else ""
+    state_params = [state] if state else []
+
+    cur.execute(f"""
+        SELECT
+            borrower_name,
+            borrower_address,
+            borrower_city,
+            borrower_state,
+            borrower_zip,
+            naics_sector,
+            industry,
+            naics_code,
+            business_type,
+            jobs_reported,
+            current_approval_amount,
+            loan_status,
+            1 - (embedding <=> %s::vector) AS similarity
+        FROM leads
+        WHERE embedding IS NOT NULL
+        {state_clause}
+        ORDER BY embedding <=> %s::vector
+        LIMIT %s
+    """, [embedding] + state_params + [embedding, limit])
+
+    rows = [dict(r) for r in cur.fetchall()]
+    for row in rows:
+        if hasattr(row.get("current_approval_amount"), "is_finite"):
+            row["current_approval_amount"] = float(row["current_approval_amount"]) or 0
+        if row.get("similarity") is not None:
+            row["similarity"] = round(float(row["similarity"]), 4)
+
+    cur.close(); conn.close()
+    return jsonify({
+        "query":   q,
+        "results": rows,
+        "count":   len(rows),
+    })
+
 # ── Enrichment (Google Places API) ───────────────────────────────────────────
 
 def places_lookup(business_name, city, state):
@@ -130,11 +248,7 @@ def places_lookup(business_name, city, state):
     Two-step Google Places lookup:
       1. Text Search  → find the place_id using name + location
       2. Place Details → pull website + phone from that place_id
-
-    Using city+state in the query significantly improves match accuracy
-    vs. just sending the business name alone.
     """
-    # Step 1 — Text Search
     query = f"{business_name} {city} {state}"
     search_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
     search_resp = requests.get(search_url, params={
@@ -151,7 +265,6 @@ def places_lookup(business_name, city, state):
     match_name = top.get("name", "")
     maps_url   = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
 
-    # Step 2 — Place Details (only fetch the fields we need → cheaper API call)
     details_url = "https://maps.googleapis.com/maps/api/place/details/json"
     details_resp = requests.get(details_url, params={
         "place_id": place_id,
@@ -188,7 +301,6 @@ def api_enrich():
         city  = biz.get("borrower_city", "")
         state = biz.get("borrower_state", "")
 
-        # Step 1 — Google Places
         try:
             places = places_lookup(name, city, state)
         except Exception:
@@ -196,7 +308,6 @@ def api_enrich():
 
         time.sleep(0.3)
 
-        # Step 2 — Website scraper (only if Places found a website)
         scraped = {"email": None, "phone_scraped": None, "contact_name": None, "scrape_source": None}
         if places.get("website"):
             try:
@@ -218,10 +329,7 @@ def api_enrich():
 
 @app.route("/api/export-csv", methods=["POST"])
 def api_export_csv():
-    """
-    Takes the already-enriched list from the frontend and streams it
-    back as a downloadable CSV file.
-    """
+    """Takes the already-enriched list from the frontend and streams it as a CSV."""
     data  = request.get_json()
     rows  = data.get("rows", [])
 
@@ -262,7 +370,6 @@ def api_export_csv():
                 r.get("match_name", "") or "",
                 "Yes" if website else "No",
             ]
-            # Wrap any value containing a comma or quote in double-quotes
             safe = []
             for v in vals:
                 v = str(v)
