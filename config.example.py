@@ -23,9 +23,6 @@ CSV_FILES = [
 # CSV encoding (SBA files use latin-1)
 CSV_ENCODING = "latin-1"
 
-# Google Places API key — NEVER commit this file to git (.gitignore covers it)
-GOOGLE_PLACES_API_KEY = "YOUR_GOOGLE_PLACES_API_KEY_HERE"
-
 # Flask server settings
 FLASK_HOST  = "127.0.0.1"
 FLASK_PORT  = 5000
