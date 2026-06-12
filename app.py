@@ -3,14 +3,14 @@ SBA Business Search — Flask API
 Run: python app.py
 """
 import time
-import requests
 from flask import Flask, request, jsonify, render_template, Response
 import psycopg2
 import psycopg2.extras
 from pgvector.psycopg2 import register_vector
 from sentence_transformers import SentenceTransformer
-from config import PG_CONFIG, FLASK_HOST, FLASK_PORT, FLASK_DEBUG, GOOGLE_PLACES_API_KEY
+from config import PG_CONFIG, FLASK_HOST, FLASK_PORT, FLASK_DEBUG
 from scraper import scrape_contact
+from website_finder import find_website
 
 app = Flask(__name__)
 
@@ -241,51 +241,15 @@ def api_semantic_search():
         "count":   len(rows),
     })
 
-# ── Enrichment (Google Places API) ───────────────────────────────────────────
-
-def places_lookup(business_name, city, state):
-    """
-    Two-step Google Places lookup:
-      1. Text Search  → find the place_id using name + location
-      2. Place Details → pull website + phone from that place_id
-    """
-    query = f"{business_name} {city} {state}"
-    search_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-    search_resp = requests.get(search_url, params={
-        "query": query,
-        "key":   GOOGLE_PLACES_API_KEY,
-    }, timeout=10)
-    search_data = search_resp.json()
-
-    if search_data.get("status") != "OK" or not search_data.get("results"):
-        return {"website": None, "phone": None, "maps_url": None, "match_name": None}
-
-    top = search_data["results"][0]
-    place_id   = top["place_id"]
-    match_name = top.get("name", "")
-    maps_url   = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-
-    details_url = "https://maps.googleapis.com/maps/api/place/details/json"
-    details_resp = requests.get(details_url, params={
-        "place_id": place_id,
-        "fields":   "website,formatted_phone_number",
-        "key":      GOOGLE_PLACES_API_KEY,
-    }, timeout=10)
-    details = details_resp.json().get("result", {})
-
-    return {
-        "website":    details.get("website"),
-        "phone":      details.get("formatted_phone_number"),
-        "maps_url":   maps_url,
-        "match_name": match_name,
-    }
+# ── Enrichment (search-based website finder + scraper) ───────────────────────
 
 @app.route("/api/enrich", methods=["POST"])
 def api_enrich():
     """
     Full enrichment pipeline per business:
-      1. Google Places → website URL + phone
-      2. Website scraper → email, scraped phone, contact name from footer/contact page
+      1. Website finder (DuckDuckGo search + domain guessing, identity-verified)
+         → website URL + key-free Google Maps link
+      2. Website scraper → email, phone, contact name from footer/contact page
     """
     data       = request.get_json()
     businesses = data.get("businesses", [])
@@ -302,26 +266,29 @@ def api_enrich():
         state = biz.get("borrower_state", "")
 
         try:
-            places = places_lookup(name, city, state)
+            found = find_website(name, city, state)
         except Exception:
-            places = {"website": None, "phone": None, "maps_url": None, "match_name": None}
+            found = {"website": None, "phone": None, "maps_url": None, "match_name": None}
 
         time.sleep(0.3)
 
         scraped = {"email": None, "phone_scraped": None, "contact_name": None, "scrape_source": None}
-        if places.get("website"):
+        if found.get("website"):
             try:
-                result = scrape_contact(places["website"])
+                result = scrape_contact(found["website"])
                 scraped = {
                     "email":         result.get("email"),
                     "phone_scraped": result.get("phone_scraped"),
                     "contact_name":  result.get("contact_name"),
                     "scrape_source": result.get("source"),
                 }
+                # The scraped phone is now the primary phone (no Places phone anymore)
+                if result.get("phone_scraped") and not found.get("phone"):
+                    found["phone"] = result["phone_scraped"]
             except Exception:
                 pass
 
-        results.append({**biz, **places, **scraped})
+        results.append({**biz, **found, **scraped})
 
     return jsonify({"results": results})
 
@@ -336,7 +303,7 @@ def api_export_csv():
     headers = [
         "Business Name", "Address", "City", "State", "ZIP",
         "Industry", "NAICS Code", "Jobs Reported", "Loan Amount ($)", "Loan Status",
-        "Website", "Phone (Google)", "Email (Scraped)", "Phone (Scraped)",
+        "Website", "Phone", "Email (Scraped)", "Phone (Scraped)",
         "Contact Name", "Scrape Source",
         "Google Maps URL", "Matched Name on Maps", "Website Found?",
     ]

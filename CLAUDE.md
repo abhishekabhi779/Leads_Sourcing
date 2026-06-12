@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Install dependencies
-pip install flask psycopg2-binary requests
+pip install flask psycopg2-binary requests beautifulsoup4 ddgs
 
 # One-time data load (~15–20 min for 900MB of CSVs)
 python load_data.py
