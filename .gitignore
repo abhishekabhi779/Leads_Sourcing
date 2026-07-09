@@ -39,3 +39,6 @@ desktop.ini
 .idea/
 *.suo
 *.user
+
+# ── Claude Code session data (worktrees, machine-specific launch config) ──
+.claude/

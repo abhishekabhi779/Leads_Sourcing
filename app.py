@@ -2,6 +2,7 @@
 SBA Business Search — Flask API
 Run: python app.py
 """
+import os
 import time
 from flask import Flask, request, jsonify, render_template, Response
 import psycopg2
@@ -11,6 +12,7 @@ from sentence_transformers import SentenceTransformer
 from config import PG_CONFIG, FLASK_HOST, FLASK_PORT, FLASK_DEBUG
 from scraper import scrape_contact
 from website_finder import find_website
+from odoo_client import push_leads
 
 app = Flask(__name__)
 
@@ -139,6 +141,7 @@ def api_search():
 
     cur.execute(f"""
         SELECT
+            loan_number,
             borrower_name,
             borrower_address,
             borrower_city,
@@ -174,39 +177,93 @@ def api_search():
 
 # ── Semantic Search ───────────────────────────────────────────────────────────
 
+# An industry only counts as a match above this cosine similarity...
+SEMANTIC_MIN_SIMILARITY = 0.50
+# ...and within this distance of the best match (so one strong hit doesn't
+# drag in loosely related industries).
+SEMANTIC_DROPOFF = 0.15
+SEMANTIC_MAX_INDUSTRIES = 4
+
 @app.route("/api/semantic-search")
 def api_semantic_search():
     """
-    Natural language search using vector similarity.
-    Query is embedded with the same model used at setup time, then compared
-    against the stored industry embeddings via cosine distance (HNSW index).
+    Natural language search, two stages:
+      1. Embed the query and score every industry by its best-matching search
+         phrase (exact cosine scan over ~700 phrase vectors — small enough
+         that no ANN index is needed, so recall is exact).
+      2. Fetch leads for the matched industries through the ordinary B-tree
+         indexes, biggest employers first.
+    Never vector-searches the 1.87M lead rows: they only carry ~85 distinct
+    category vectors, and HNSW recall collapses on mass-duplicated vectors
+    (that's what made "banks" return wineries, and any state filter starve).
 
     Params:
       q      — free-text query, e.g. "metal fabrication shops"
-      state  — optional state filter (applied after vector search)
+      state  — optional state filter
       limit  — number of results (default 50, max 200)
     """
     q = request.args.get("q", "").strip()
     if not q:
         return jsonify({"error": "q parameter required"}), 400
 
-    state  = request.args.get("state", "").strip()
-    limit  = min(int(request.args.get("limit", 50)), 200)
+    state = request.args.get("state", "").strip()
+    limit = min(int(request.args.get("limit", 50)), 200)
 
-    model  = get_embed_model()
-    embedding = model.encode(
-        f"sector: unknown | industry: {q}",
-        normalize_embeddings=True
-    ).tolist()
+    embedding = get_embed_model().encode(q, normalize_embeddings=True).tolist()
 
     conn = get_db()
     cur  = get_cursor(conn)
 
+    # Stage 1 — which industries does the query mean?
+    cur.execute("""
+        SELECT naics_sector, industry,
+               MAX(1 - (embedding <=> %s::vector)) AS similarity
+        FROM industry_embeddings
+        GROUP BY naics_sector, industry
+        ORDER BY similarity DESC
+        LIMIT 8
+    """, [embedding])
+    scored = [dict(r) for r in cur.fetchall()]
+    for s in scored:
+        s["similarity"] = round(float(s["similarity"]), 4)
+
+    best = scored[0]["similarity"] if scored else 0.0
+    cutoff = max(SEMANTIC_MIN_SIMILARITY, best - SEMANTIC_DROPOFF)
+    matches = [s for s in scored if s["similarity"] >= cutoff][:SEMANTIC_MAX_INDUSTRIES]
+    # On ties, put specific industries before sector-level catch-alls
+    # (e.g. "banks": Banks, Credit Unions & Lenders before Finance & Insurance)
+    matches.sort(key=lambda m: (-m["similarity"], m["industry"] == m["naics_sector"]))
+
+    if not matches:
+        cur.close(); conn.close()
+        return jsonify({
+            "query": q,
+            "results": [],
+            "count": 0,
+            "no_match": True,
+            "matched_industries": [],
+            "best_guess": scored[0] if scored else None,
+        })
+
+    # Stage 2 — pull leads for those industries (industry → sector is 1:1,
+    # so filtering on industry alone hits idx_leads_industry, and the
+    # (borrower_state, industry) composite when a state is given).
+    industries = [m["industry"] for m in matches]
+    sim_by_industry = {m["industry"]: m["similarity"] for m in matches}
+
+    rank_case = " ".join(
+        f"WHEN industry = %s THEN {i}" for i in range(len(industries))
+    )
     state_clause = "AND borrower_state = %s" if state else ""
-    state_params = [state] if state else []
+
+    params = [tuple(industries)]
+    if state:
+        params.append(state)
+    params += industries + [limit]
 
     cur.execute(f"""
         SELECT
+            loan_number,
             borrower_name,
             borrower_address,
             borrower_city,
@@ -218,27 +275,28 @@ def api_semantic_search():
             business_type,
             jobs_reported,
             current_approval_amount,
-            loan_status,
-            1 - (embedding <=> %s::vector) AS similarity
+            loan_status
         FROM leads
-        WHERE embedding IS NOT NULL
+        WHERE industry IN %s
         {state_clause}
-        ORDER BY embedding <=> %s::vector
+        ORDER BY CASE {rank_case} ELSE {len(industries)} END,
+                 jobs_reported DESC NULLS LAST,
+                 borrower_name ASC
         LIMIT %s
-    """, [embedding] + state_params + [embedding, limit])
+    """, params)
 
     rows = [dict(r) for r in cur.fetchall()]
     for row in rows:
         if hasattr(row.get("current_approval_amount"), "is_finite"):
             row["current_approval_amount"] = float(row["current_approval_amount"]) or 0
-        if row.get("similarity") is not None:
-            row["similarity"] = round(float(row["similarity"]), 4)
+        row["similarity"] = sim_by_industry.get(row["industry"])
 
     cur.close(); conn.close()
     return jsonify({
         "query":   q,
         "results": rows,
         "count":   len(rows),
+        "matched_industries": matches,
     })
 
 # ── Enrichment (search-based website finder + scraper) ───────────────────────
@@ -351,8 +409,29 @@ def api_export_csv():
         headers={"Content-Disposition": "attachment; filename=sba_enriched_leads.csv"},
     )
 
+# ── Odoo CRM Export ───────────────────────────────────────────────────────────
+
+@app.route("/api/export-odoo", methods=["POST"])
+def api_export_odoo():
+    """
+    Pushes the already-enriched list from the frontend into Odoo CRM.
+    Dedup: each row's loan_number becomes an Odoo external id, so re-sending
+    the same businesses updates the existing leads instead of duplicating.
+    """
+    data = request.get_json()
+    rows = data.get("rows", [])
+    if not rows:
+        return jsonify({"error": "No rows provided"}), 400
+
+    try:
+        result = push_leads(rows)
+    except Exception as e:
+        return jsonify({"error": f"Odoo push failed: {e}"}), 502
+    return jsonify(result)
+
 # ── Run ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print(f"SBA Business Search — http://{FLASK_HOST}:{FLASK_PORT}")
-    app.run(host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG)
+    port = int(os.environ.get("PORT", FLASK_PORT))
+    print(f"SBA Business Search — http://{FLASK_HOST}:{port}")
+    app.run(host=FLASK_HOST, port=port, debug=FLASK_DEBUG)

@@ -27,3 +27,12 @@ CSV_ENCODING = "latin-1"
 FLASK_HOST  = "127.0.0.1"
 FLASK_PORT  = 5000
 FLASK_DEBUG = True
+
+# Odoo CRM integration
+# Generate the API key in Odoo: avatar -> My Profile -> Account Security -> API Keys
+ODOO_CONFIG = {
+    "url":      "http://localhost:8069",
+    "db":       "db",
+    "username": "admin",
+    "api_key":  "YOUR_ODOO_API_KEY_HERE",
+}

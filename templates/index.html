@@ -149,6 +149,14 @@
     }
     .btn-clear-sel:hover { background: #f5f3ff; }
 
+    .btn-odoo {
+      padding: 8px 20px; background: #059669; color: #fff;
+      border: none; border-radius: 7px; font-size: 0.875rem; font-weight: 600;
+      cursor: pointer; transition: background 0.15s; white-space: nowrap;
+    }
+    .btn-odoo:hover:not(:disabled) { background: #047857; }
+    .btn-odoo:disabled { opacity: 0.45; cursor: default; }
+
     /* ── Results ── */
     .results-section { max-width: 1020px; margin: 18px auto 56px; }
 
@@ -160,6 +168,12 @@
     .results-count strong { color: #1a1a2e; }
     .ai-mode-note {
       font-size: 0.78rem; color: #7c3aed; font-style: italic;
+    }
+    .matched-line { margin-top: 5px; font-size: 0.78rem; color: #666; font-weight: 400; }
+    .matched-ind {
+      display: inline-block; margin: 0 4px 2px 0; padding: 2px 9px;
+      border-radius: 99px; background: #ede9fe; color: #5b21b6;
+      font-size: 0.75rem; font-weight: 600;
     }
 
     table {
@@ -319,6 +333,7 @@
   <div class="enrich-bar-right">
     <button class="btn-clear-sel" id="btn-clear-sel">Clear selection</button>
     <button class="btn-enrich" id="btn-enrich">Find Contacts &amp; Export CSV</button>
+    <button class="btn-odoo" id="btn-odoo">Send to Odoo</button>
   </div>
 </div>
 
@@ -467,6 +482,8 @@ async function semanticSearch() {
     renderResults(data.results, {
       total: data.count, page: 1,
       total_pages: 1, mode: "ai", query: data.query,
+      matched: data.matched_industries || [],
+      noMatch: !!data.no_match, bestGuess: data.best_guess,
     });
   } catch(e) {
     toast("Search failed — check console");
@@ -490,7 +507,8 @@ function rowKey(r) {
 function simBadge(sim) {
   if (sim == null) return "";
   const pct = Math.round(sim * 100);
-  const cls = pct >= 80 ? "sim-high" : pct >= 65 ? "sim-mid" : "sim-low";
+  // Scores are the industry's best-phrase cosine: ≥75 = keyword-level hit
+  const cls = pct >= 75 ? "sim-high" : pct >= 60 ? "sim-mid" : "sim-low";
   return `<span class="sim-badge ${cls}">${pct}% match</span>`;
 }
 
@@ -499,15 +517,26 @@ function renderResults(results, meta) {
   const isAI      = meta.mode === "ai";
 
   const countEl = document.getElementById("results-count");
+  const matchedChips = (meta.matched || []).map(m =>
+    `<span class="matched-ind">${esc(m.industry)} &middot; ${Math.round(m.similarity * 100)}%</span>`
+  ).join("");
   countEl.innerHTML = isAI
     ? `<strong>${meta.total}</strong> businesses matched &nbsp;<span class="ai-mode-note">AI Semantic Search &mdash; "${esc(meta.query || "")}"</span>`
+      + (matchedChips ? `<div class="matched-line">Matched industries: ${matchedChips}</div>` : "")
     : `<strong>${meta.total.toLocaleString()}</strong> businesses found`;
 
   document.getElementById("page-info").textContent =
     (!isAI && meta.total_pages > 1) ? `Page ${meta.page} of ${meta.total_pages}` : "";
 
   if (!results.length) {
-    container.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><p>No businesses found. Try adjusting your search.</p></div>`;
+    if (isAI && meta.noMatch) {
+      const bg = meta.bestGuess
+        ? ` Closest industry was <strong>${esc(meta.bestGuess.industry)}</strong> at ${Math.round(meta.bestGuess.similarity * 100)}% &mdash; below the match threshold.`
+        : "";
+      container.innerHTML = `<div class="empty-state"><div class="icon">🤔</div><p>No industry in this dataset matches &ldquo;<strong>${esc(meta.query || "")}</strong>&rdquo; closely enough.${bg}<br>Try describing the business type differently, e.g. &ldquo;metal fabrication shops&rdquo; or &ldquo;hair salons&rdquo;.</p></div>`;
+    } else {
+      container.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><p>No businesses found. Try adjusting your search.</p></div>`;
+    }
     return;
   }
 
@@ -618,40 +647,61 @@ document.getElementById("btn-clear-sel").addEventListener("click", () => {
 });
 
 // ── Enrich + Export ────────────────────────────────────────────────────────
-document.getElementById("btn-enrich").addEventListener("click", async () => {
-  const businesses = Object.values(selectedRows);
-  const btn = document.getElementById("btn-enrich");
-  btn.disabled = true;
-  btn.textContent = "Looking up websites...";
+// Enrichment results cached by row key so exporting CSV and then sending to
+// Odoo (or vice versa) only scrapes each business once.
+let enrichedCache = {};
 
-  try {
+function paintEnrichment(results) {
+  results.forEach(r => {
+    const key = rowKey(r);
+    const cell = document.getElementById(`enrich-${CSS.escape(key)}`);
+    if (!cell) return;
+    let html = "";
+    if (r.website)      html += `<a class="website-link" href="${esc(r.website)}" target="_blank">Website</a><br>`;
+    if (r.email)        html += `<span style="color:#059669;font-size:0.78rem;">${esc(r.email)}</span><br>`;
+    if (r.contact_name) html += `<span style="color:#b45309;font-size:0.78rem;">${esc(r.contact_name)}</span><br>`;
+    if (r.phone)        html += `<span style="color:#555;font-size:0.78rem;">${esc(r.phone)}</span><br>`;
+    if (r.maps_url)     html += `<a class="maps-link" href="${esc(r.maps_url)}" target="_blank">Maps</a>`;
+    if (!r.website && !r.phone && !r.email)
+      html = `<span style="color:#bbb;font-size:0.78rem;">Not found</span>`;
+    cell.innerHTML = html;
+  });
+}
+
+async function enrichSelected() {
+  const businesses = Object.values(selectedRows);
+  const missing = businesses.filter(b => !enrichedCache[rowKey(b)]);
+  if (missing.length) {
     const res  = await fetch("/api/enrich", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ businesses }),
+      body: JSON.stringify({ businesses: missing }),
     });
     const data = await res.json();
-    if (data.error) { toast("Error: " + data.error); return; }
+    if (data.error) throw new Error(data.error);
+    data.results.forEach(r => { enrichedCache[rowKey(r)] = r; });
+    paintEnrichment(data.results);
+  }
+  return businesses.map(b => enrichedCache[rowKey(b)]);
+}
 
-    data.results.forEach(r => {
-      const key = rowKey(r);
-      const cell = document.getElementById(`enrich-${CSS.escape(key)}`);
-      if (!cell) return;
-      let html = "";
-      if (r.website)      html += `<a class="website-link" href="${esc(r.website)}" target="_blank">Website</a><br>`;
-      if (r.email)        html += `<span style="color:#059669;font-size:0.78rem;">${esc(r.email)}</span><br>`;
-      if (r.contact_name) html += `<span style="color:#b45309;font-size:0.78rem;">${esc(r.contact_name)}</span><br>`;
-      if (r.phone)        html += `<span style="color:#555;font-size:0.78rem;">${esc(r.phone)}</span><br>`;
-      if (r.maps_url)     html += `<a class="maps-link" href="${esc(r.maps_url)}" target="_blank">Maps</a>`;
-      if (!r.website && !r.phone && !r.email)
-        html = `<span style="color:#bbb;font-size:0.78rem;">Not found</span>`;
-      cell.innerHTML = html;
-    });
+function setExportBusy(busy) {
+  document.getElementById("btn-enrich").disabled = busy;
+  document.getElementById("btn-odoo").disabled   = busy;
+}
+
+document.getElementById("btn-enrich").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-enrich");
+  setExportBusy(true);
+  btn.textContent = "Looking up websites...";
+
+  try {
+    const rows = await enrichSelected();
 
     const csvRes = await fetch("/api/export-csv", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rows: data.results }),
+      body: JSON.stringify({ rows }),
     });
     const blob = await csvRes.blob();
     const url  = URL.createObjectURL(blob);
@@ -659,13 +709,42 @@ document.getElementById("btn-enrich").addEventListener("click", async () => {
     a.href = url; a.download = "sba_enriched_leads.csv"; a.click();
     URL.revokeObjectURL(url);
 
-    toast(`Exported ${data.results.length} enriched businesses`);
+    toast(`Exported ${rows.length} enriched businesses`);
   } catch(e) {
     toast("Something went wrong — check console");
     console.error(e);
   } finally {
-    btn.disabled = false;
+    setExportBusy(false);
     btn.textContent = "Find Contacts & Export CSV";
+  }
+});
+
+document.getElementById("btn-odoo").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-odoo");
+  setExportBusy(true);
+  btn.textContent = "Sending to Odoo...";
+
+  try {
+    const rows = await enrichSelected();
+
+    const res = await fetch("/api/export-odoo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rows }),
+    });
+    const out = await res.json();
+    if (out.error) { toast("Odoo error: " + out.error); return; }
+
+    let msg = `Odoo: ${out.created} lead${out.created === 1 ? "" : "s"} created`;
+    if (out.updated) msg += `, ${out.updated} updated`;
+    toast(msg);
+    if (out.messages && out.messages.length) console.warn("Odoo import messages:", out.messages);
+  } catch(e) {
+    toast("Something went wrong — check console");
+    console.error(e);
+  } finally {
+    setExportBusy(false);
+    btn.textContent = "Send to Odoo";
   }
 });
 

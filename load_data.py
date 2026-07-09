@@ -80,8 +80,9 @@ NAICS_MAP = [
     ("531",  "Real Estate"),
     ("53",   "Real Estate & Rental"),
     ("524",  "Insurance"),
-    ("522",  "Credit & Lending"),
-    ("521",  "Banks & Credit Unions"),
+    ("522",  "Banks, Credit Unions & Lenders"),
+    # 521 is central banks — real banks are 5221; rows here are misreported NAICS
+    ("521",  "Central Banking & Monetary Authorities"),
     ("52",   "Finance & Insurance"),
     ("519",  "Web & Internet Publishing"),
     ("518",  "Data Processing & Hosting"),

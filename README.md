@@ -82,17 +82,19 @@ Inserts use `ON CONFLICT (loan_number) DO NOTHING` — safe to re-run, no duplic
 
 ### 2. Semantic Search Layer
 
-Business descriptions, industry names, and search queries are converted to 384-dimensional vectors using [`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — a local embedding model that runs entirely on CPU.
+Search queries and curated industry search phrases are converted to 384-dimensional vectors using [`all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) — a local embedding model that runs entirely on CPU.
 
 ```
-"metal fabrication shops"  →  [0.67, -0.12, 0.23, ...]  (384 numbers)
-"Metal Products Manufacturing"  →  [0.69, -0.10, 0.21, ...]  (close!)
-"Full-Service Restaurants"  →  [0.12, 0.54, -0.33, ...]  (far away)
+"plumbers"  →  [0.67, -0.12, 0.23, ...]  (384 numbers)
+"plumbers" (a phrase of Specialty Trade Contractors)  →  cosine ≈ 1.0  (hit!)
+"wineries" (a phrase of Food & Beverage Manufacturing)  →  cosine ≈ 0.1 (far away)
 ```
 
-Vectors are stored in PostgreSQL via **pgvector** with an **HNSW index** for approximate nearest-neighbour search — returns the 50 closest matches in milliseconds across 1.87M rows.
+Each of the 85 industry categories is represented by **many short phrase vectors** (its label plus curated keywords from `industry_search_texts.py`, ~670 rows total in the `industry_embeddings` table). A query scores each industry by its **best-matching phrase**, keeping single-word queries sharp instead of diluting them against long descriptions.
 
-Only the 85 unique industry categories are embedded (not every row). The computed vector is then propagated to all rows sharing that industry — consistent, cheap, fast to backfill.
+Search runs in two stages: (1) exact cosine scan over the ~670 phrase vectors picks up to 4 industries above a similarity threshold — no ANN index, so recall is exact and off-topic queries return "no match" instead of garbage; (2) leads for those industries are fetched through ordinary B-tree indexes (state filter included), biggest employers first.
+
+> Why not embed all 1.87M rows? They'd only carry 85 distinct vectors, and HNSW recall collapses on mass-duplicated vectors — searches got stuck inside one duplicate cluster ("banks" returned wineries) and state filters starved to zero rows.
 
 ---
 
@@ -106,7 +108,7 @@ Flask with direct `psycopg2` connections (no ORM).
 | `GET /api/industries?sector=` | Industries filtered to a sector (cascade) |
 | `GET /api/states` | All state codes |
 | `GET /api/search` | Filtered, paginated results (sector, industry, state, city, name) |
-| `GET /api/semantic-search` | Vector similarity search — `?q=metal+fabrication&state=TX` |
+| `GET /api/semantic-search` | Two-stage semantic search — `?q=metal+fabrication&state=TX` |
 | `POST /api/enrich` | Enrichment pipeline — up to 10 businesses per batch |
 | `POST /api/export-csv` | Streams enriched rows as a downloadable CSV |
 
@@ -169,7 +171,7 @@ python load_data.py
 # 2. Add naics_sector column and backfill
 python migrate_naics_sector.py
 
-# 3. Set up pgvector embeddings and HNSW index
+# 3. Build the industry_embeddings phrase table (re-run after editing industry_search_texts.py)
 python setup_embeddings.py
 ```
 
@@ -192,7 +194,8 @@ SBA/
 ├── load_data.py              # ETL — CSV → PostgreSQL + NAICS classification
 ├── scraper.py                # Website contact scraper
 ├── migrate_naics_sector.py   # One-time: adds naics_sector column
-├── setup_embeddings.py       # One-time: pgvector setup + embedding backfill
+├── setup_embeddings.py       # Builds industry_embeddings phrase table (pgvector)
+├── industry_search_texts.py  # Curated search phrases per industry — the search "vocabulary"
 ├── install_pgvector_admin.ps1  # Admin: installs pgvector into PG18 on Windows
 ├── config.py                 # Credentials (gitignored)
 ├── config.example.py         # Template
